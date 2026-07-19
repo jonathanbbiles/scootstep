@@ -232,23 +232,29 @@
       b.textContent = state === "loading" ? "…" : state === "playing" ? "❚❚ Preview" : state === "error" ? "no preview" : "▶ Preview";
       b.disabled = state === "error";
     }
+    var pending = {};
+    function resolve(term) {                              // -> Promise<url|null>, memoized
+      if (cache[term] !== undefined) return Promise.resolve(cache[term]);
+      if (pending[term]) return pending[term];
+      var p = jsonp(term).then(function (url) { cache[term] = url; delete pending[term]; return url; });
+      pending[term] = p; return p;
+    }
+    function prefetch(term) { if (term && cache[term] === undefined && !pending[term]) resolve(term); }   // warm the cache when the detail opens
+    function play(id, url) {
+      if (!url) { setBtn(id, "error"); current = null; toast("No 30-sec preview for that one — try “open full song.”"); return; }
+      audio.src = url; current = id; setBtn(id, "playing");     // optimistic — the tap plays it; revert only if blocked/errored
+      var p = audio.play();
+      if (p && p.catch) p.catch(function () { if (current === id) { setBtn(id, "idle"); current = null; } });
+    }
     function toggle(id, term) {
       ensureAudio();
       if (current === id && !audio.paused) { audio.pause(); setBtn(id, "idle"); current = null; return; }
       if (current && current !== id) { audio.pause(); setBtn(current, "idle"); }
-      setBtn(id, "loading");
-      var go = function (url) {
-        if (!url) { setBtn(id, "error"); current = null; toast("No 30-sec preview for that one — try “open full song.”"); return; }
-        audio.src = url; current = id;
-        var p = audio.play();
-        if (p && p.then) p.then(function () { setBtn(id, "playing"); }).catch(function () { setBtn(id, "error"); current = null; });
-        else setBtn(id, "playing");
-      };
-      if (cache[term] !== undefined) go(cache[term]);
-      else jsonp(term).then(function (url) { cache[term] = url; go(url); });
+      if (cache[term] !== undefined) { play(id, cache[term]); }        // prefetched -> play SYNCHRONOUSLY inside the tap (iOS-safe)
+      else { setBtn(id, "loading"); resolve(term).then(function (url) { play(id, url); }); }   // fallback if the tap beat the prefetch
     }
     function stopAll() { if (audio && !audio.paused) audio.pause(); if (current) { setBtn(current, "idle"); current = null; } }
-    return { toggle: toggle, stopAll: stopAll };
+    return { toggle: toggle, stopAll: stopAll, prefetch: prefetch };
   })();
   window.SS_Preview = Preview;   // exposed for the headless test
 
@@ -303,7 +309,7 @@
     heroEngine.load(d); heroEngine.setMute(true); setTimeout(function () { heroEngine.ensureAudio(); heroEngine.setMute(true); heroEngine.play(); }, 60);
     // wire
     $("#d-back").onclick = function () { Preview.stopAll(); if (heroEngine) { heroEngine.destroy(); heroEngine = null; } showView(lastTab); };
-    $$("[data-prev]", v).forEach(function (b) { b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.term); }; });
+    $$("[data-prev]", v).forEach(function (b) { Preview.prefetch(b.dataset.term); b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.term); }; });
     $("#d-share").onclick = function () { exportCheatSheet(d); };
     var un = $("#d-unlock"); if (un) un.onclick = openPaywall;
     var lb = $("#d-learn"); if (lb) lb.onclick = function () { openPlayer(d, "learn"); };
