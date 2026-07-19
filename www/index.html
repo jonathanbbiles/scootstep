@@ -125,6 +125,7 @@ button{font-family:inherit;cursor:pointer}
 .rc.b1{color:var(--cream)}.rc.touch{opacity:.7}
 .rc.active{background:var(--amber);color:#3a1e07;border-color:var(--amber-bright);transform:scale(1.05)}
 .rc.insel{background:rgba(217,123,41,.22)}
+#p-sections .sec{padding:10px 13px;font-size:calc(13.5px*var(--textScale));flex:0 0 auto}
 .pcontrols{margin-top:auto;display:flex;flex-direction:column;gap:9px}
 .prow{display:flex;gap:8px}
 .pbtn{flex:1;border:1px solid var(--line-2);background:rgba(250,245,236,.07);color:var(--cream);font-weight:800;font-size:calc(14px*var(--textScale));padding:13px 8px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:6px}
@@ -217,36 +218,36 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
   <div class="instr" aria-live="polite"><div class="cchip" id="p-count" aria-label="Current count">1</div><div class="t"><b id="p-instr">Ready</b><span id="p-instr2">Press play — the count track keeps you on beat</span></div></div>
   <div class="ribbon" id="p-ribbon"></div>
   <div class="pcontrols" id="p-controls">
-    <!-- Watch controls -->
+    <!-- WATCH: the whole dance -->
     <div id="ctl-watch">
       <div class="prow">
         <button class="pbtn primary" id="p-play">▶ Play</button>
-        <button class="pbtn" id="p-restart" aria-label="Restart">↺</button>
-        <button class="pbtn" id="p-mirror" aria-label="Mirror view">🪞</button>
-        <button class="pbtn" id="p-rotate" aria-label="Full rotation through all walls">🧭</button>
-      </div>
-      <div class="tempo" style="margin-top:9px">
-        <div class="tempo-h"><span>Tempo</span><b id="p-tempoval">100%</b></div>
-        <input type="range" id="p-tempo" min="40" max="120" step="5" value="100" aria-label="Tempo" />
-        <div class="tempo-h" style="margin-top:5px"><span id="p-bpm">96 BPM</span><span id="p-tempolock" class="hide">Pro unlocks 40–120%</span></div>
-      </div>
-    </div>
-    <!-- Learn controls -->
-    <div id="ctl-learn" class="hide">
-      <div class="prow" style="margin-bottom:9px">
-        <button class="pbtn" id="p-prev">‹ Prev</button>
-        <button class="pbtn primary" id="p-step-play">▶ Play chunk</button>
-        <button class="pbtn" id="p-next">Next ›</button>
-      </div>
-      <div class="prow">
-        <button class="pbtn" id="p-chunkprev" aria-label="Previous 8-count">‹‹ 8</button>
-        <div class="pbtn" id="p-chunklabel" style="flex:2;pointer-events:none">Counts 1–8</div>
-        <button class="pbtn" id="p-chunknext" aria-label="Next 8-count">8 ››</button>
+        <button class="pbtn" id="p-restart" aria-label="Restart from the top">↺</button>
+        <button class="pbtn" id="p-mirror" aria-label="Mirror the view">🪞 Mirror</button>
       </div>
       <div class="prow" style="margin-top:9px">
-        <button class="pbtn on" id="p-loop">🔁 Loop chunk: On</button>
-        <button class="pbtn" id="p-ghost">👣 Ghost path: On</button>
+        <button class="pbtn on" id="p-loop-watch">🔁 Loop dance: On</button>
+        <button class="pbtn" id="p-rotate" aria-label="Play through all walls once">🧭 All walls</button>
       </div>
+    </div>
+    <!-- LEARN / DRILL: pick a section -->
+    <div id="ctl-learn" class="hide">
+      <div id="p-sections" class="filters" style="margin-bottom:10px" role="group" aria-label="Pick a section to drill"></div>
+      <div class="prow" style="margin-bottom:9px">
+        <button class="pbtn" id="p-prev" aria-label="Previous count">‹ Step</button>
+        <button class="pbtn primary" id="p-step-play">▶ Play section</button>
+        <button class="pbtn" id="p-next" aria-label="Next count">Step ›</button>
+      </div>
+      <div class="prow">
+        <button class="pbtn on" id="p-loop">🔁 Loop: On</button>
+        <button class="pbtn on" id="p-ghost">👣 Ghost: On</button>
+      </div>
+    </div>
+    <!-- shared tempo (both modes) -->
+    <div class="tempo" style="margin-top:10px">
+      <div class="tempo-h"><span>Tempo</span><b id="p-tempoval">100%</b></div>
+      <input type="range" id="p-tempo" min="40" max="120" step="5" value="100" aria-label="Tempo" />
+      <div class="tempo-h" style="margin-top:5px"><span id="p-bpm">96 BPM</span><span id="p-tempolock" class="hide">Pro unlocks 40–120%</span></div>
     </div>
   </div>
 </div>
