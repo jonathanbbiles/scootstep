@@ -6,8 +6,7 @@
   "ios": {
     "contentInset": "always",
     "backgroundColor": "#1F3A5F",
-    "scrollEnabled": true,
-    "limitsNavigationsToAppBoundDomains": true
+    "scrollEnabled": true
   },
   "server": {
     "iosScheme": "capacitor"
