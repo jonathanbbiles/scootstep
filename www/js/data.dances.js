@@ -37,7 +37,7 @@
     phrases: [
       ph(1, "Counts 1–8: Slide right", 1, 8),
       ph(2, "Counts 9–16: Slide left", 9, 16),
-      ph(3, "Counts 17–24: Heel kicks", 17, 24),
+      ph(3, "Counts 17–24: Heel touches, four times", 17, 24),
       ph(4, "Counts 25–32: Walk it, ¼ turn left", 25, 32)
     ],
     events: [
@@ -49,10 +49,12 @@
       ev(11, "L", "side", -1.4, 0), ev(12, "R", "together", -0.9, 0),
       ev(13, "L", "side", -1.4, 0), ev(14, "R", "together", -0.9, 0),
       ev(15, "L", "side", -1.4, 0), ev(16, "R", "touch", -0.9, 0, { w: false, cue: "Clap!" }),
-      ev(17, "R", "kick", 0.5, 0.7, { w: false }), ev(18, "R", "together", 0.5, 0),
-      ev(19, "L", "kick", -0.5, 0.7, { w: false }), ev(20, "L", "together", -0.5, 0),
-      ev(21, "R", "kick", 0.5, 0.7, { w: false }), ev(22, "R", "together", 0.5, 0),
-      ev(23, "L", "kick", -0.5, 0.7, { w: false }), ev(24, "L", "together", -0.5, 0, { cue: "Here we go!" }),
+      // Step sheets are unanimous: these are HEEL TOUCHES forward, not kicks. (The song's "now kick"
+      // lyric is what makes everyone call them kicks.) Touch the heel out, step it back beside.
+      ev(17, "R", "touch", 0.5, 0.7, { w: false, cue: "Heel!" }), ev(18, "R", "together", 0.5, 0),
+      ev(19, "L", "touch", -0.5, 0.7, { w: false, cue: "Heel!" }), ev(20, "L", "together", -0.5, 0),
+      ev(21, "R", "touch", 0.5, 0.7, { w: false, cue: "Heel!" }), ev(22, "R", "together", 0.5, 0),
+      ev(23, "L", "touch", -0.5, 0.7, { w: false, cue: "Heel!" }), ev(24, "L", "together", -0.5, 0, { cue: "Here we go!" }),
       ev(25, "R", "walk", 0.5, 0.6), ev(26, "L", "walk", -0.5, 0.6),
       ev(27, "R", "walk", 0.5, 1.1), ev(28, "L", "touch", 0.0, 1.1, { w: false }),
       ev(29, "L", "step", -0.5, 0.5, { turn: -90, cue: "New wall!" }), ev(30, "R", "together", 0.5, 0.5),
@@ -65,31 +67,37 @@
     id: "the-wobble", name: "The Wobble", aka: ["Wobble"], counts: 32, walls: 4,
     difficulty: 1, tags: ["famous", "wedding", "party", "TikTok", "high energy"],
     free: true, famous: true, intro_counts: 0, version: 1,
-    choreographer_credit: "Popularized by V.I.C. (2008); steps traditional",
+    choreographer_credit: "Popularized by V.I.C. (2008); 32-count sheet formalized by Vic Brentnell (2019), matching the version circulating since 2012",
     songs: [song("Wobble", "V.I.C.")],
     phrases: [
-      ph(1, "Counts 1–8: Jump forward", 1, 8),
-      ph(2, "Counts 9–16: Jump back", 9, 16),
-      ph(3, "Counts 17–24: Wobble right, wobble left", 17, 24),
-      ph(4, "Counts 25–32: Freestyle ¼ turn left", 25, 32)
+      ph(1, "Counts 1–8: Hop forward, hop back", 1, 8),
+      ph(2, "Counts 9–16: Wobble right hip, wobble left hip", 9, 16),
+      ph(3, "Counts 17–24: Rock & coaster, right then left", 17, 24),
+      ph(4, "Counts 25–32: ¼ turn left, step-lift eight", 25, 32)
     ],
     events: [
-      ev(1, "both", "step", 0.5, 0.7, { cue: "Forward!" }), ev(2, "both", "hold", 0.5, 0.7),
-      ev(3, "both", "step", 0.5, 1.2), ev(4, "both", "hold", 0.5, 1.2),
-      ev(5, "R", "touch", 0.5, 1.5, { w: false }), ev(6, "R", "together", 0.5, 1.2),
-      ev(7, "L", "touch", -0.5, 1.5, { w: false }), ev(8, "L", "together", -0.5, 1.2),
-      ev(9, "both", "step", 0.5, 0.5, { cue: "Back it up!" }), ev(10, "both", "hold", 0.5, 0.5),
-      ev(11, "both", "step", 0.5, 0.0), ev(12, "both", "hold", 0.5, 0.0),
-      ev(13, "R", "touch", 0.5, 0.4, { w: false }), ev(14, "R", "together", 0.5, 0.0),
-      ev(15, "L", "touch", -0.5, 0.4, { w: false }), ev(16, "L", "together", -0.5, 0.0),
-      ev(17, "R", "step", 1.1, 0, { cue: "Wobble!" }), ev(18, "L", "step", 0.3, 0),
-      ev(19, "R", "step", 1.1, 0), ev(20, "L", "touch", 0.3, 0, { w: false }),
-      ev(21, "L", "step", -1.1, 0, { cue: "Wobble!" }), ev(22, "R", "step", -0.3, 0),
-      ev(23, "L", "step", -1.1, 0), ev(24, "R", "touch", -0.3, 0, { w: false }),
-      ev(25, "R", "stomp", 0.5, 0.2, { cue: "Own it!" }), ev(26, "L", "stomp", -0.5, 0.2),
-      ev(27, "R", "hitch", 0.5, 0.4, { w: false }), ev(28, "R", "together", 0.5, 0),
-      ev(29, "L", "step", -0.5, 0.4, { turn: -90, cue: "Turn!" }), ev(30, "R", "together", 0.5, 0.4),
-      ev(31, "L", "step", -0.5, 0), ev(32, "R", "stomp", 0.5, 0)
+      // 1–8: BOTH the forward hops and the back hops live inside this section (the app previously
+      // spread them across 1–16, which pushed every later section 8 counts out of place).
+      ev(1, "both", "step", 0.5, 0.6, { cue: "Hop forward!" }), ev(2, "both", "hold", 0.5, 0.6),
+      ev(3, "both", "step", 0.5, 1.1), ev(4, "both", "hold", 0.5, 1.1),
+      ev(5, "both", "step", 0.5, 0.5, { cue: "Hop back!" }), ev(6, "both", "hold", 0.5, 0.5),
+      ev(7, "both", "step", 0.5, 0.0), ev(8, "both", "hold", 0.5, 0.0),
+      // 9–16: the actual "wobble" — lean and bounce on one hip, then the other. This is a body
+      // motion, so the feet stay planted and the cue carries the hip work.
+      ev(9, "R", "step", 0.7, 0, { cue: "Lean right — wobble!" }), ev(10, "R", "hold", 0.75, 0),
+      ev(11, "R", "hold", 0.7, 0), ev(12, "R", "hold", 0.75, 0),
+      ev(13, "L", "step", -0.7, 0, { cue: "Lean left — wobble!" }), ev(14, "L", "hold", -0.75, 0),
+      ev(15, "L", "hold", -0.7, 0), ev(16, "L", "hold", -0.75, 0),
+      // 17–24: rock forward, recover, coaster back — twice. The app omitted this section entirely.
+      ev(17, "R", "rock", 0.5, 0.6, { cue: "Rock forward" }), ev(18, "L", "rock", -0.5, 0),
+      ev(19, "R", "step", 0.4, -0.5), ev(19.5, "L", "together", -0.4, -0.5), ev(20, "R", "step", 0.5, 0.1, { cue: "Coaster!" }),
+      ev(21, "L", "rock", -0.5, 0.6, { cue: "Rock forward" }), ev(22, "R", "rock", 0.5, 0),
+      ev(23, "L", "step", -0.4, -0.5), ev(23.5, "R", "together", 0.4, -0.5), ev(24, "L", "step", -0.5, 0.1, { cue: "Coaster!" }),
+      // 25–32: not freestyle — a defined eight. ¼ turn left on 25, then alternating lift/set-down.
+      ev(25, "R", "step", 0.5, 0.3, { turn: -90, cue: "¼ turn left!" }), ev(26, "L", "hitch", -0.5, 0.4, { w: false }),
+      ev(27, "L", "step", -0.5, 0), ev(28, "R", "hitch", 0.5, 0.4, { w: false }),
+      ev(29, "R", "step", 0.5, 0), ev(30, "L", "hitch", -0.5, 0.4, { w: false }),
+      ev(31, "L", "step", -0.5, 0), ev(32, "R", "together", 0.5, 0)
     ]
   });
 
@@ -152,7 +160,7 @@
     songs: [song("Watermelon Sugar", "Harry Styles")],
     phrases: [
       ph(1, "Counts 1–8: Slide left, slide right", 1, 8),
-      ph(2, "Counts 9–16: Hop back, stomp, clap", 9, 16),
+      ph(2, "Counts 9–16: Hop back, stomps, kick switches", 9, 16),
       ph(3, "Counts 17–24: Cha-cha in place", 17, 24),
       ph(4, "Counts 25–32: ¼ turn cha-cha, reset", 25, 32)
     ],
@@ -171,28 +179,35 @@
 
   /* 6 ── COTTON EYED JOE ── pro, traditional (public domain) ────────────────── */
   DANCES.push({
-    id: "cotton-eyed-joe", name: "Cotton Eyed Joe", aka: ["Cotton Eye Joe"], counts: 32, walls: 2,
+    id: "cotton-eyed-joe", name: "Cotton Eyed Joe", aka: ["Cotton Eye Joe"], counts: 32, walls: 1,
     difficulty: 2, tags: ["famous", "bar classic", "traditional", "high energy"],
-    free: false, famous: true, intro_counts: 0, version: 1,
-    choreographer_credit: "Traditional (public domain)",
+    free: false, famous: true, intro_counts: 0, version: 2,
+    // There is no single canonical "Cotton Eyed Joe" line dance — CopperKnob hosts many mutually
+    // incompatible sheets under this title. This is the most-voted modern line-dance version
+    // (heel-heel / toe-toe / point-hook, then vines), published as 32 count 1 WALL. The previous
+    // "32 count / 2 wall" here matched no published sheet at all. The traditional Texas form
+    // (hook-kick-shuffle-back + polkas) is a PARTNER dance, not this.
+    choreographer_credit: "Traditional tune (public domain); most-documented 32-count line dance version, choreographer unattributed. A common variant turns ¼ left on the last vine to make it 4-wall",
     songs: [song("Cotton Eye Joe", "Rednex")],
     phrases: [
-      ph(1, "Counts 1–8: Heel-hook right, shuffle back", 1, 8),
-      ph(2, "Counts 9–16: Heel-hook left, shuffle back", 9, 16),
-      ph(3, "Counts 17–24: Four shuffles forward", 17, 24),
-      ph(4, "Counts 25–32: Kicks and ½ turn", 25, 32)
+      ph(1, "Counts 1–8: Right heel, toe, point & hook", 1, 8),
+      ph(2, "Counts 9–16: Vine right, vine left", 9, 16),
+      ph(3, "Counts 17–24: Left heel, toe, point & hook", 17, 24),
+      ph(4, "Counts 25–32: Vine left, vine right", 25, 32)
     ],
     events: [
-      ev(1, "R", "touch", 0.5, 0.7, { w: false, cue: "Heel!" }), ev(2, "R", "hitch", 0.3, 0.4, { w: false, cue: "Hook!" }),
-      ev(3, "R", "step", 0.5, -0.4), ev(4, "L", "step", -0.4, -0.6), ev(4.5, "R", "step", 0.4, -0.5), ev(5, "L", "step", -0.5, -0.7),
-      ev(6, "R", "step", 0.5, -0.4), ev(6.5, "L", "step", -0.4, -0.5), ev(7, "R", "step", 0.5, -0.3), ev(8, "L", "together", -0.5, -0.3),
-      ev(9, "L", "touch", -0.5, 0.7, { w: false, cue: "Heel!" }), ev(10, "L", "hitch", -0.3, 0.4, { w: false, cue: "Hook!" }),
-      ev(11, "L", "step", -0.5, -0.4), ev(12, "R", "step", 0.4, -0.6), ev(12.5, "L", "step", -0.4, -0.5), ev(13, "R", "step", 0.5, -0.7),
-      ev(14, "L", "step", -0.5, -0.4), ev(14.5, "R", "step", 0.4, -0.5), ev(15, "L", "step", -0.5, -0.3), ev(16, "R", "together", 0.5, -0.3),
-      ev(17, "R", "step", 0.5, 0.4), ev(17.5, "L", "step", -0.3, 0.3), ev(18, "R", "step", 0.5, 0.5), ev(19, "L", "step", -0.5, 0.5), ev(19.5, "R", "step", 0.3, 0.4), ev(20, "L", "step", -0.5, 0.6, { cue: "Shuffle!" }),
-      ev(21, "R", "step", 0.5, 0.4), ev(21.5, "L", "step", -0.3, 0.3), ev(22, "R", "step", 0.5, 0.5), ev(23, "L", "step", -0.5, 0.5), ev(23.5, "R", "step", 0.3, 0.4), ev(24, "L", "step", -0.5, 0.6),
-      ev(25, "R", "kick", 0.5, 0.8, { w: false, cue: "Kick!" }), ev(26, "R", "step", 0.5, 0), ev(27, "L", "kick", -0.5, 0.8, { w: false, cue: "Kick!" }), ev(28, "L", "step", -0.5, 0),
-      ev(29, "R", "step", 0.5, 0.4, { turn: -180, cue: "½ turn!" }), ev(30, "L", "together", -0.5, 0.4), ev(31, "R", "stomp", 0.5, 0), ev(32, "L", "stomp", -0.5, 0)
+      ev(1, "R", "touch", 0.5, 0.7, { w: false, cue: "Heel, heel!" }), ev(1.5, "R", "touch", 0.5, 0.35, { w: false }), ev(2, "R", "touch", 0.5, 0.7, { w: false }),
+      ev(3, "R", "touch", 0.5, -0.5, { w: false, cue: "Toe, toe!" }), ev(3.5, "R", "touch", 0.5, -0.2, { w: false }), ev(4, "R", "touch", 0.5, -0.5, { w: false }),
+      ev(5, "R", "touch", 1.1, 0, { w: false, cue: "Point!" }), ev(6, "R", "hitch", 0.0, 0.15, { w: false, cue: "Hook!" }),
+      ev(7, "R", "touch", 1.1, 0, { w: false, cue: "Point!" }), ev(8, "R", "hitch", 0.35, -0.45, { w: false, cue: "Flick!" }),
+      ev(9, "R", "side", 1.0, 0), ev(10, "L", "cross", 0.4, -0.35), ev(11, "R", "side", 1.6, 0), ev(12, "L", "together", 1.05, 0),
+      ev(13, "L", "side", 0.4, 0), ev(14, "R", "cross", 1.0, -0.35), ev(15, "L", "side", -0.2, 0), ev(16, "R", "together", 0.4, 0),
+      ev(17, "L", "touch", -0.5, 0.7, { w: false, cue: "Heel, heel!" }), ev(17.5, "L", "touch", -0.5, 0.35, { w: false }), ev(18, "L", "touch", -0.5, 0.7, { w: false }),
+      ev(19, "L", "touch", -0.5, -0.5, { w: false, cue: "Toe, toe!" }), ev(19.5, "L", "touch", -0.5, -0.2, { w: false }), ev(20, "L", "touch", -0.5, -0.5, { w: false }),
+      ev(21, "L", "touch", -1.1, 0, { w: false, cue: "Point!" }), ev(22, "L", "hitch", 0.0, 0.15, { w: false, cue: "Hook!" }),
+      ev(23, "L", "touch", -1.1, 0, { w: false, cue: "Point!" }), ev(24, "L", "hitch", -0.35, -0.45, { w: false, cue: "Flick!" }),
+      ev(25, "L", "side", -1.0, 0), ev(26, "R", "cross", -0.4, -0.35), ev(27, "L", "side", -1.6, 0), ev(28, "R", "together", -1.05, 0),
+      ev(29, "R", "side", -0.55, 0), ev(30, "L", "cross", -1.15, -0.35), ev(31, "R", "side", 0.0, 0), ev(32, "L", "together", -0.55, 0)
     ]
   });
 
@@ -200,24 +215,37 @@
   DANCES.push({
     id: "boot-scootin-boogie", name: "Boot Scootin' Boogie", aka: ["Boot Scoot Boogie", "Boot Scootin"], counts: 32, walls: 4,
     difficulty: 3, tags: ["famous", "bar classic", "country", "high energy"],
-    free: false, famous: true, intro_counts: 0, version: 1,
-    choreographer_credit: "Line dance by Bill Bader (1992); song by Brooks & Dunn",
+    free: false, famous: true, intro_counts: 0, version: 2,
+    // Corrected to Bill Bader's published sheet (copperknob.co.uk/stepsheets/QGCF4T9, and Bader's
+    // own billbader.com). The steps here previously bore no relation to it. Bader choreographed it
+    // in Oct 1990 as "Boot Scootin' (Vancouver) Boogie" to Asleep At The Wheel; the 1992 Brooks &
+    // Dunn hit is the song that popularized it, not the origin date.
+    choreographer_credit: "Line dance by Bill Bader (1990, \"Boot Scootin' (Vancouver) Boogie\"); song by Brooks & Dunn (1992)",
     songs: [song("Boot Scootin' Boogie", "Brooks & Dunn")],
     phrases: [
-      ph(1, "Counts 1–8: Heel struts forward", 1, 8),
-      ph(2, "Counts 9–16: Vine right, vine left", 9, 16),
-      ph(3, "Counts 17–24: Rocking chair and stomps", 17, 24),
-      ph(4, "Counts 25–32: Shuffle, ¼ turn, scoot", 25, 32)
+      ph(1, "Counts 1–8: Vine right & heel-clap, vine left & heel-clap", 1, 8),
+      ph(2, "Counts 9–16: Step-together heels, then heel swivels", 9, 16),
+      ph(3, "Counts 17–24: Stomps, kicks, ball-change, kicks", 17, 24),
+      ph(4, "Counts 25–32: Forward hook, back hitches, ¼ turn left", 25, 32)
     ],
     events: [
-      ev(1, "R", "touch", 0.5, 0.5, { w: false, cue: "Heel!" }), ev(2, "R", "strut", 0.5, 0.5), ev(3, "L", "touch", -0.5, 0.5, { w: false, cue: "Heel!" }), ev(4, "L", "strut", -0.5, 0.5),
-      ev(5, "R", "touch", 0.5, 1.0, { w: false }), ev(6, "R", "strut", 0.5, 1.0), ev(7, "L", "touch", -0.5, 1.0, { w: false }), ev(8, "L", "strut", -0.5, 1.0),
-      ev(9, "R", "side", 1.1, 0.6), ev(10, "L", "cross", 0.4, 0.25), ev(11, "R", "side", 1.6, 0.6), ev(12, "L", "scuff", 1.05, 0.9, { w: false, cue: "Scuff!" }),
-      ev(13, "L", "side", 0.4, 0.6), ev(14, "R", "cross", 1.0, 0.25), ev(15, "L", "side", -0.2, 0.6), ev(16, "R", "scuff", 0.4, 0.9, { w: false }),
-      ev(17, "R", "rock", 0.5, 0.6), ev(18, "L", "rock", -0.5, 0), ev(19, "R", "rock", 0.5, -0.4), ev(20, "L", "rock", -0.5, 0),
-      ev(21, "R", "stomp", 0.5, 0, { cue: "Stomp!" }), ev(22, "R", "hold", 0.5, 0), ev(23, "L", "stomp", -0.5, 0, { cue: "Stomp!" }), ev(24, "L", "hold", -0.5, 0),
-      ev(25, "R", "step", 0.5, 0.4), ev(25.5, "L", "step", -0.3, 0.25), ev(26, "R", "step", 0.5, 0.5), ev(27, "L", "step", -0.5, 0.5, { turn: -90, cue: "¼ turn!" }), ev(28, "R", "touch", 0.5, 0.5, { w: false }),
-      ev(29, "R", "scuff", 0.5, 0.9, { w: false, cue: "Scoot!" }), ev(30, "R", "hitch", 0.5, 0.5, { w: false }), ev(31, "R", "stomp", 0.5, 0), ev(32, "L", "stomp", -0.5, 0)
+      ev(1, "R", "side", 1.1, 0), ev(2, "L", "cross", 0.5, -0.35), ev(3, "R", "side", 1.6, 0), ev(4, "L", "touch", 1.15, 0.6, { w: false, cue: "Heel — clap!" }),
+      ev(5, "L", "side", 0.1, 0), ev(6, "R", "cross", 0.6, -0.35), ev(7, "L", "side", -0.5, 0), ev(8, "R", "touch", -0.1, 0.6, { w: false, cue: "Heel — clap!" }),
+      ev(9, "R", "together", 0.5, 0), ev(10, "L", "touch", -0.15, 0.6, { w: false, cue: "Heel — clap!" }),
+      ev(11, "L", "together", -0.5, 0), ev(12, "R", "touch", 0.15, 0.6, { w: false, cue: "Heel — clap!" }),
+      // Heel swivels are a both-feet motion a footwork diagram can't draw, so the feet hold and the
+      // cue carries the swivel. Count mapping is exact to the sheet (right, left, right, centre).
+      ev(13, "R", "together", 0.5, 0, { cue: "Swivel heels RIGHT" }), ev(14, "both", "hold", 0.5, 0, { cue: "Swivel heels LEFT" }),
+      ev(15, "both", "hold", 0.5, 0, { cue: "Swivel heels RIGHT" }), ev(16, "both", "hold", 0.5, 0, { cue: "Heels CENTRE" }),
+      ev(17, "R", "stomp", 0.5, 0, { w: false, cue: "Stomp!" }), ev(18, "R", "stomp", 0.5, 0, { w: false, cue: "Stomp!" }),
+      ev(19, "R", "kick", 0.5, 0.8, { w: false, cue: "Kick!" }), ev(20, "R", "kick", 0.5, 0.8, { w: false, cue: "Kick!" }),
+      ev(20.5, "R", "together", 0.5, 0), ev(21, "L", "step", -0.5, 0, { cue: "Ball-change" }),
+      ev(22, "R", "stomp", 0.5, 0, { w: false, cue: "Stomp!" }),
+      ev(23, "R", "kick", 0.5, 0.8, { w: false, cue: "Kick!" }), ev(24, "R", "kick", 0.5, 0.8, { w: false, cue: "Kick!" }),
+      ev(25, "R", "step", 0.5, 0.6, { cue: "Forward" }), ev(26, "L", "hitch", 0.15, -0.35, { w: false, cue: "Hook behind" }),
+      ev(27, "L", "step", -0.5, 0.05, { cue: "Back" }), ev(28, "R", "hitch", 0.5, 0.45, { w: false, cue: "Hitch!" }),
+      ev(29, "R", "step", 0.5, -0.45, { cue: "Back" }), ev(30, "L", "hitch", -0.5, 0.0, { w: false, cue: "Hitch!" }),
+      ev(31, "L", "step", -0.5, 0.2, { cue: "Forward" }), ev(32, "R", "scuff", 0.5, 0.65, { w: false, turn: -90, cue: "Scuff — ¼ turn left!" })
     ]
   });
 
@@ -254,7 +282,7 @@
     choreographer_credit: "ScootSteps Originals",
     songs: [song("Tennessee Whiskey", "Chris Stapleton")],
     phrases: [
-      ph(1, "Counts 1–8: Shuffle right, shuffle left", 1, 8),
+      ph(1, "Counts 1–8: Shuffle right & cross, shuffle left & cross", 1, 8),
       ph(2, "Counts 9–16: Rock, recover, coaster step", 9, 16),
       ph(3, "Counts 17–24: Sway and step-touch", 17, 24),
       ph(4, "Counts 25–32: ¼ turn shuffle, sweetheart pose", 25, 32)

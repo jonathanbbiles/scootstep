@@ -128,9 +128,26 @@
       return audio;
     }
     // clean metronome tick — a soft sine with a quick pitch drop, enveloped from silence (no harsh
-    // square-wave "clicks"). Fires immediately, only while the context is actually running.
+    // square-wave "clicks").
+    //
+    // ctx.resume() is ASYNC. The old code bailed whenever state !== "running", so the FIRST tick
+    // after any suspension (every Learn-mode step, since stepTo() resumes and beeps on the next
+    // line) was silently dropped — that's why learning the dance had no count track. Now a
+    // suspended context is resumed and the tick fires on the other side, as long as it's still
+    // timely (a stale tick arriving late would sound worse than none).
     function beep(accent) {
-      if (!audio || st.muteCounts || audio.state !== "running") return;
+      if (st.muteCounts) return;
+      const a = audio || ensureAudio();
+      if (!a) return;
+      if (a.state === "running") return fire(a, accent);
+      const asked = perfNow();
+      try {
+        const p = a.resume();
+        if (p && p.then) p.then(function () { if (a.state === "running" && perfNow() - asked < 250) fire(a, accent); }, function () {});
+        else if (a.state === "running") fire(a, accent);
+      } catch (e) {}
+    }
+    function fire(audio, accent) {
       const style = (opts.getSettings && opts.getSettings().countStyle) || "click";
       const t = audio.currentTime + 0.0005;
       const o = audio.createOscillator(), g = audio.createGain();

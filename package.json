@@ -6,7 +6,9 @@
   "author": "Jonathan Biles <jonathanbbiles@gmail.com>",
   "scripts": {
     "sync": "cap sync ios",
-    "add:ios": "cap add ios"
+    "add:ios": "cap add ios",
+    "test": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node itunes-match-test.mjs",
+    "test:offline": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node itunes-match-test.mjs --offline"
   },
   "dependencies": {
     "@capacitor-community/in-app-review": "8.0.0",

@@ -80,7 +80,25 @@ Code is done and pushed. To ship to TestFlight (PLAYBOOK §5–6):
 
 ## Validation
 
+`npm test` runs the whole suite. `npm run test:offline` skips the live-network half.
+
 - `node engine-schema-test.mjs` — engine math (12 checks)
 - `node validate-dances.mjs` — all 10 dances (schema, bounds, wall closure)
-- `node smoke-test.mjs` — full app in jsdom, every screen + flow (28 checks)
-- `node render-catalog.mjs` / `node gen-icon.mjs` — visual proof frames
+- `node audio-transport-test.mjs` — the count track: Learn-mode ticks, suspended-context
+  resume, mute, Watch-mode transport (9 checks)
+- `node itunes-match-test.mjs` — song preview + song deep-link resolution. Fixtures pin the
+  known failure modes (tribute/karaoke/instrumental cuts outranking the real recording), then
+  every catalog song is resolved against the **live** iTunes Search API. `--offline` skips the
+  live half.
+
+> **Missing:** `smoke-test.mjs`, `render-catalog.mjs` and `gen-icon.mjs` were documented here but
+> are not in the repo — they have never been committed. The jsdom smoke test in particular is
+> worth restoring; there is no dependency on jsdom in `package.json` today.
+
+## Choreography sourcing
+
+Named real dances are matched count-for-count to published step sheets (CopperKnob is the
+standard repository). The six "ScootSteps Originals" are our own choreography and have no
+external sheet to match. Notes live in comments above each corrected dance in
+`www/js/data.dances.js`. Never guess choreography — if a dance can't be verified against a real
+sheet, flag it rather than shipping plausible-but-wrong steps.

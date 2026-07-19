@@ -205,15 +205,22 @@
      JSONP (script + callback) works in the Capacitor webview without CORS issues. Graceful when
      no preview is found: keep the Apple Music / Spotify "open full song" deep links. */
   var Preview = (function () {
-    var audio = null, current = null, cache = {};                 // cache term -> previewUrl | null
-    function jsonp(term) {
+    var audio = null, current = null, cache = {};                 // cache term -> {preview,view} | null
+
+    // Result matching lives in js/itunes-match.js so it can be unit-tested against the live API.
+    var pick = window.SS_iTunesMatch.pick;
+    // iTunes Search sends NO Access-Control-Allow-Origin, so fetch() is blocked in the webview —
+    // JSONP (script tag) is the only cross-origin path that works here. Keep it.
+    function jsonp(title, artist) {
       return new Promise(function (resolve) {
-        var cb = "__it" + Math.random().toString(36).slice(2), s = document.createElement("script"), done = false;
-        window[cb] = function (d) { done = true; var t = d && d.results && d.results[0]; cleanup(); resolve(t && t.previewUrl ? t.previewUrl : null); };
+        var cb = "__it" + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/g, "") + (jsonp._n = (jsonp._n || 0) + 1);
+        var s = document.createElement("script"), done = false;
+        window[cb] = function (d) { done = true; cleanup(); resolve(pick(d && d.results, title, artist)); };
         function cleanup() { try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); clearTimeout(to); }
-        var to = setTimeout(function () { if (!done) { cleanup(); resolve(null); } }, 7000);
+        var to = setTimeout(function () { if (!done) { cleanup(); resolve(null); } }, 8000);
         s.onerror = function () { if (!done) { cleanup(); resolve(null); } };
-        s.src = "https://itunes.apple.com/search?media=music&entity=song&limit=1&callback=" + cb + "&term=" + encodeURIComponent(term);
+        s.src = "https://itunes.apple.com/search?media=music&entity=song&country=US&limit=25&callback=" + cb +
+                "&term=" + encodeURIComponent(title + " " + artist);
         document.head.appendChild(s);
       });
     }
@@ -226,32 +233,56 @@
       }
       return audio;
     }
+    // A lookup miss is never permanent: the button stays tappable so a flaky network can be retried.
+    // (Previously one failed lookup set disabled=true and greyed "no preview" for the whole session.)
     function setBtn(id, state) {
       var b = document.querySelector('[data-prev="' + id + '"]'); if (!b) return;
       b.classList.toggle("playing", state === "playing");
-      b.textContent = state === "loading" ? "…" : state === "playing" ? "❚❚ Preview" : state === "error" ? "no preview" : "▶ Preview";
-      b.disabled = state === "error";
+      b.textContent = state === "loading" ? "…" : state === "playing" ? "❚❚ Preview" : state === "retry" ? "↻ Preview" : "▶ Preview";
+      b.disabled = false;
+    }
+    // Once the lookup lands, upgrade the "Apple Music" link from a generic search URL to the
+    // EXACT track page (trackViewUrl) so it opens the song, not just the Music app.
+    function linkUp(id, view) {
+      if (!view) return;
+      var a = document.querySelector('[data-applelink="' + id + '"]'); if (!a) return;
+      a.setAttribute("href", view);
     }
     var pending = {};
-    function resolve(term) {                              // -> Promise<url|null>, memoized
-      if (cache[term] !== undefined) return Promise.resolve(cache[term]);
-      if (pending[term]) return pending[term];
-      var p = jsonp(term).then(function (url) { cache[term] = url; delete pending[term]; return url; });
-      pending[term] = p; return p;
+    function key(title, artist) { return title + " " + artist; }
+    function resolve(title, artist) {                     // -> Promise<{preview,view}|null>, memoized
+      var k = key(title, artist);
+      if (cache[k] !== undefined) return Promise.resolve(cache[k]);
+      if (pending[k]) return pending[k];
+      var p = jsonp(title, artist).then(function (hit) {
+        if (hit) cache[k] = hit; else delete cache[k];     // don't memoize a failure — allow a retry
+        delete pending[k]; return hit || null;
+      });
+      pending[k] = p; return p;
     }
-    function prefetch(term) { if (term && cache[term] === undefined && !pending[term]) resolve(term); }   // warm the cache when the detail opens
-    function play(id, url) {
-      if (!url) { setBtn(id, "error"); current = null; toast("No 30-sec preview for that one — try “open full song.”"); return; }
-      audio.src = url; current = id; setBtn(id, "playing");     // optimistic — the tap plays it; revert only if blocked/errored
+    // warm the cache when the detail opens, and upgrade the deep link as soon as it resolves
+    function prefetch(id, title, artist) {
+      if (!title) return;
+      resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); });
+    }
+    function play(id, hit) {
+      if (!hit || !hit.preview) {
+        setBtn(id, "retry"); current = null;
+        toast(hit && hit.view ? "No 30-sec clip — tap Apple Music for the full song."
+                              : "Couldn't reach the preview service — tap to retry.");
+        return;
+      }
+      audio.src = hit.preview; current = id; setBtn(id, "playing");   // optimistic — the tap plays it; revert only if blocked/errored
       var p = audio.play();
-      if (p && p.catch) p.catch(function () { if (current === id) { setBtn(id, "idle"); current = null; } });
+      if (p && p.catch) p.catch(function () { if (current === id) { setBtn(id, "retry"); current = null; } });
     }
-    function toggle(id, term) {
+    function toggle(id, title, artist) {
       ensureAudio();
       if (current === id && !audio.paused) { audio.pause(); setBtn(id, "idle"); current = null; return; }
       if (current && current !== id) { audio.pause(); setBtn(current, "idle"); }
-      if (cache[term] !== undefined) { play(id, cache[term]); }        // prefetched -> play SYNCHRONOUSLY inside the tap (iOS-safe)
-      else { setBtn(id, "loading"); resolve(term).then(function (url) { play(id, url); }); }   // fallback if the tap beat the prefetch
+      var k = key(title, artist);
+      if (cache[k] !== undefined) { linkUp(id, cache[k].view); play(id, cache[k]); }   // prefetched -> play SYNCHRONOUSLY inside the tap (iOS-safe)
+      else { setBtn(id, "loading"); resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); play(id, hit); }); }
     }
     function stopAll() { if (audio && !audio.paused) audio.pause(); if (current) { setBtn(current, "idle"); current = null; } }
     return { toggle: toggle, stopAll: stopAll, prefetch: prefetch };
@@ -268,8 +299,8 @@
       var pid = d.id + "_" + i;
       return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--line)">' +
         '<div style="min-width:0"><b style="font-weight:800">' + esc(s.title) + '</b>' +
-        '<div class="p">' + esc(s.artist) + ' · <a href="' + s.apple + '" target="_blank" rel="noopener" style="color:var(--amber-bright);font-weight:700">Apple Music</a> · <a href="' + s.spotify + '" target="_blank" rel="noopener" style="color:var(--muted);font-weight:700">Spotify</a></div></div>' +
-        '<button class="chip prevbtn" data-prev="' + pid + '" data-term="' + esc(s.title + " " + s.artist) + '" aria-label="Play 30-second preview of ' + esc(s.title) + '">▶ Preview</button>' +
+        '<div class="p">' + esc(s.artist) + ' · <a href="' + s.apple + '" data-applelink="' + pid + '" target="_blank" rel="noopener" style="color:var(--amber-bright);font-weight:700">Apple Music</a> · <a href="' + s.spotify + '" target="_blank" rel="noopener" style="color:var(--muted);font-weight:700">Spotify</a></div></div>' +
+        '<button class="chip prevbtn" data-prev="' + pid + '" data-title="' + esc(s.title) + '" data-artist="' + esc(s.artist) + '" aria-label="Play 30-second preview of ' + esc(s.title) + '">▶ Preview</button>' +
         '</div>';
     }).join('');
     var mastery = S.mastery[d.id] || null, dl = !!S.downloaded[d.id], want = !!S.want[d.id];
@@ -309,7 +340,10 @@
     heroEngine.load(d); heroEngine.setMute(true); setTimeout(function () { heroEngine.ensureAudio(); heroEngine.setMute(true); heroEngine.play(); }, 60);
     // wire
     $("#d-back").onclick = function () { Preview.stopAll(); if (heroEngine) { heroEngine.destroy(); heroEngine = null; } showView(lastTab); };
-    $$("[data-prev]", v).forEach(function (b) { Preview.prefetch(b.dataset.term); b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.term); }; });
+    $$("[data-prev]", v).forEach(function (b) {
+      Preview.prefetch(b.dataset.prev, b.dataset.title, b.dataset.artist);
+      b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.title, b.dataset.artist); };
+    });
     $("#d-share").onclick = function () { exportCheatSheet(d); };
     var un = $("#d-unlock"); if (un) un.onclick = openPaywall;
     var lb = $("#d-learn"); if (lb) lb.onclick = function () { openPlayer(d, "learn"); };
@@ -355,6 +389,9 @@
   function markSection() { $$("#p-sections .sec").forEach(function (b) { b.classList.toggle("on", (b.dataset.sec === "whole" && sectionIdx === -1) || (+b.dataset.sec === sectionIdx)); }); }
   function openPlayer(d, mode) {
     try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
+    // the detail-screen hero loop keeps running behind the player otherwise — a second engine
+    // animating and holding the shared audio context for nothing
+    try { if (heroEngine) heroEngine.pause(); } catch (e) {}
     playerDance = d; playerMode = (mode === "learn") ? "learn" : "watch"; sectionIdx = 0; sessionCompleted = false; chunkPlaying = false;
     $("#player").classList.add("on");
     $("#p-name").textContent = d.name + (d.glossary ? " · basic" : "");
@@ -370,6 +407,10 @@
     setPlayerMode(playerMode);
     // Watch/glossary: start immediately, in the SAME gesture that opened the player (iOS needs a gesture to start audio)
     if (playerMode === "watch") { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.play(); $("#p-play").textContent = "❚❚ Pause"; }
+    // Learn: nothing auto-plays, but we still unlock audio HERE — inside the "Start learning" tap —
+    // so the very first count tick (stepping or playing a section) is audible. Without this the
+    // whole learn flow ran on a suspended context and made no sound at all.
+    else { eng.ensureAudio(); }
   }
   function closePlayer() { if (eng) eng.pause(); $("#player").classList.remove("on"); }
   function setPlayerMode(mode) {
@@ -430,10 +471,14 @@
   $("#p-tempo").addEventListener("input", function () { setTempoUI(+this.value); });
   $("#p-step-play").onclick = function () {          // Play/pause the selected section (loops per the Loop toggle)
     if (!chunkPlaying) {
-      eng.ensureAudio(); eng.setStepMode(false); eng.setStopAfter(loopOn ? 0 : 1); eng.restart(); eng.play();
+      // ensureAudio() runs inside this tap so the count track is audible for the section drill —
+      // this is the count track that carries the learner through the steps.
+      eng.ensureAudio(); eng.setStepMode(false); eng.setStopAfter(loopOn ? 0 : 1); eng.play();
       chunkPlaying = true; $("#p-step-play").textContent = "❚❚ Pause";
     } else {
-      var b = sectionBounds(); eng.pause(); eng.setStepMode(true); eng.stepTo(b[0]);
+      // pause where the learner actually is, so they can study the count they stopped on
+      // (this used to snap back to the top of the section, losing their place)
+      eng.pause(); eng.setStepMode(true);
       chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
     }
   };
@@ -625,19 +670,32 @@
   }
 
   /* ---------------- boot ---------------- */
-  // open an external URL in the system browser (Capacitor routes off-origin http(s) to Safari)
-  function openExternal(url) { try { window.open(url, "_blank"); } catch (e) { try { location.href = url; } catch (e2) {} } return false; }
+  // Prefer Capacitor's Browser plugin when it's present, else window.open (Capacitor routes
+  // off-origin http(s) to Safari), else a hard navigation. Feature-detected on purpose: this
+  // works today with no @capacitor/browser dependency, and upgrades by itself if one is added.
+  function openExternal(url) {
+    try {
+      var P = window.Capacitor && window.Capacitor.Plugins;
+      if (P && P.Browser && P.Browser.open) { P.Browser.open({ url: url }); return false; }
+    } catch (e) {}
+    try { window.open(url, "_blank"); } catch (e) { try { location.href = url; } catch (e2) {} }
+    return false;
+  }
 
   // iOS: unlock the shared AudioContext on the very first user interaction, so Watch autostart,
   // the count track, and song previews all actually make sound on device.
-  var _audioPrimed = false;
+  // NOTE: this must run on EVERY gesture, not just the first. iOS re-suspends the context whenever
+  // the app is backgrounded or audio goes idle; the old one-shot latch meant that after the first
+  // suspension nothing ever resumed it again, so the count track went silent for the rest of the
+  // session. Creating the context is one-shot; resuming it is not.
   function primeAudio() {
-    if (_audioPrimed) return; _audioPrimed = true;
     try {
       var C = window.AudioContext || window.webkitAudioContext;
       if (!window.__ssAudioCtx && C) window.__ssAudioCtx = new C();
       var ctx = window.__ssAudioCtx;
-      if (ctx) { if (ctx.state === "suspended") ctx.resume(); var b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0); }
+      if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume();
+      var b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0);
     } catch (e) {}
   }
   ["pointerdown", "touchend", "mousedown"].forEach(function (ev) { document.addEventListener(ev, primeAudio, { passive: true }); });
