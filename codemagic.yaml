@@ -2,9 +2,9 @@
 # Reconciled against the App Builder Template's PROVEN green file (ChordLoop lineage).
 # =============================================================================
 # FOR THE SIGNING SESSION (the only things to fill / confirm — code is done):
-#   1. <ASC_KEY_NAME>  → the reusable App Store Connect API key already stored in
+#   1. ChordLoopAPIKey  → the reusable App Store Connect API key already stored in
 #      Codemagic (PLAYBOOK §0.3), e.g. "ChordLoopAPIKey".
-#   2. <NUMERIC_APP_ID> → App Store Connect → App Information, after the app record
+#   2. "6792406139" → App Store Connect → App Information, after the app record
 #      is created for bundle id  com.jonathanbiles.scootstep  (PLAYBOOK §5.2).
 #   3. Code signing identities must hold BOTH (PLAYBOOK §0.4):
 #        • cert    "JB_Shared_Distribution"  (the one shared Apple Distribution cert)
@@ -20,7 +20,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
-      app_store_connect: <ASC_KEY_NAME>
+      app_store_connect: ChordLoopAPIKey
     environment:
       ios_signing:
         distribution_type: app_store
@@ -29,7 +29,7 @@ workflows:
         BUNDLE_ID: "com.jonathanbiles.scootstep"
         XCODE_PROJECT: "ios/App/App.xcodeproj"     # SPM path (Capacitor 8) — ChordLoop-proven default
         XCODE_SCHEME: "App"
-        ASC_APP_ID: "<NUMERIC_APP_ID>"             # fill after the ASC app record exists (§5.2)
+        ASC_APP_ID: "6792406139"             # fill after the ASC app record exists (§5.2)
       node: 22
       xcode: latest
       cocoapods: default
