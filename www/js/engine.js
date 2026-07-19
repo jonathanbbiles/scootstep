@@ -109,28 +109,39 @@
 
     const st = {
       dance: null, TL: null, bpm: 96,
-      playing: false, stepMode: false, mirror: false, cues: true, fullRotation: false, ghost: true,
+      playing: false, stepMode: false, mirror: false, cues: true, stopAfter: 0, ghost: true,
       tempoPct: 100, muteCounts: false, lapFired: false,
-      startCtx: 0, startBeat: 0, schedBeat: 0,
+      startPerf: 0, startBeat: 0, lastClickCount: -1,
       loop: null,                 // {start, end} in counts (1-based inclusive), null = whole dance
       stepBeat: 0, stepFrom: 0, stepTo: 0, stepAnimStart: 0, stepAnimating: false,
       trails: { L: [], R: [] }, rotationsDone: 0, lastCount: -1
     };
 
-    // audio clock (synthesized -> tempo is pitch-independent)
+    // ONE shared AudioContext for the whole app; the VISUAL transport runs on performance.now()
+    // so the animation never freezes even if iOS keeps the audio context suspended.
     let audio = null;
-    function ensureAudio() { if (!audio) { try { audio = new (global.AudioContext || global.webkitAudioContext)(); } catch (e) { audio = null; } } if (audio && audio.state === "suspended") audio.resume(); return audio; }
-    function beep(time, accent) {
-      if (!audio || st.muteCounts) return;
+    const perfNow = () => (global.performance && global.performance.now) ? global.performance.now() : Date.now();
+    function ensureAudio() {
+      if (!global.__ssAudioCtx) { try { global.__ssAudioCtx = new (global.AudioContext || global.webkitAudioContext)(); } catch (e) {} }
+      audio = global.__ssAudioCtx || null;
+      if (audio && audio.state === "suspended") { try { audio.resume(); } catch (e) {} }   // must be inside a user gesture on iOS
+      return audio;
+    }
+    // clean metronome tick — a soft sine with a quick pitch drop, enveloped from silence (no harsh
+    // square-wave "clicks"). Fires immediately, only while the context is actually running.
+    function beep(accent) {
+      if (!audio || st.muteCounts || audio.state !== "running") return;
       const style = (opts.getSettings && opts.getSettings().countStyle) || "click";
+      const t = audio.currentTime + 0.0005;
       const o = audio.createOscillator(), g = audio.createGain();
-      o.type = style === "woodblock" ? "triangle" : "square";
-      o.frequency.value = accent ? 1500 : 900;
-      const vol = accent ? 0.16 : 0.09;
-      g.gain.setValueAtTime(0.0001, time);
-      g.gain.exponentialRampToValueAtTime(vol, time + 0.002);
-      g.gain.exponentialRampToValueAtTime(0.0001, time + (accent ? 0.09 : 0.05));
-      o.connect(g).connect(audio.destination); o.start(time); o.stop(time + 0.12);
+      o.type = style === "woodblock" ? "triangle" : "sine";
+      o.frequency.setValueAtTime(accent ? 1400 : 950, t);
+      o.frequency.exponentialRampToValueAtTime(accent ? 900 : 620, t + 0.045);
+      const vol = accent ? 0.22 : 0.13;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + (accent ? 0.12 : 0.07));
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.16);
     }
     function haptic(accent) {
       const s = opts.getSettings && opts.getSettings();
@@ -147,58 +158,38 @@
     function wrapBeat(B) { const { lo, hi } = loopSpan(); const span = hi - lo; return lo + (((B - lo) % span) + span) % span; }
 
     function bpmEff() { return st.bpm * st.tempoPct / 100; }
-    function beatDur() { return 60 / bpmEff(); }
-    function currentBeat() { return st.startBeat + (audio.currentTime - st.startCtx) / beatDur(); }
+    function beatDurMs() { return 60000 / bpmEff(); }
+    function currentBeat() { return st.startBeat + (perfNow() - st.startPerf) / beatDurMs(); }
 
     // ---------- transport ----------
     function play() {
       if (!st.TL) return;
-      ensureAudio(); if (!audio) return;
+      ensureAudio();                       // resume the shared context — call runs inside the tap gesture (iOS)
       if (st.stepMode) setStepMode(false);
-      st.playing = true; st.rotationsDone = 0; st.lapFired = false;
-      st.startCtx = audio.currentTime; st.startBeat = wrapBeat(st.startBeat);
-      st.schedBeat = Math.ceil(st.startBeat - 1e-9);
-      schedule();
+      st.playing = true; st.lapFired = false;
+      st.startBeat = wrapBeat(st.startBeat); st.startPerf = perfNow(); st.lastClickCount = -1;
       emit("play");
     }
     function pause() { if (!st.playing) return; st.startBeat = currentBeat(); st.playing = false; emit("pause"); }
     function toggle() { st.playing ? pause() : play(); }
-    function restart() { const { lo } = loopSpan(); st.startBeat = lo; st.schedBeat = Math.ceil(lo - 1e-9); st.rotationsDone = 0; if (st.playing) st.startCtx = audio.currentTime; if (st.stepMode) stepTo(lo + 1); }
+    function restart() { const { lo } = loopSpan(); st.startBeat = lo; st.startPerf = perfNow(); st.lapFired = false; st.lastClickCount = -1; if (st.stepMode) stepTo(lo + 1); }
     function setTempo(pct) {
       pct = clamp(pct, 40, 120);
       const now = st.playing ? currentBeat() : st.startBeat;
-      st.tempoPct = pct; st.startBeat = now;
-      if (st.playing) { st.startCtx = audio.currentTime; st.schedBeat = Math.ceil(now - 1e-9); }
+      st.tempoPct = pct; st.startBeat = now; st.startPerf = perfNow();
       emit("tempo", pct);
     }
     function setMirror(m) { st.mirror = !!m; emit("mirror", st.mirror); }
     function setCues(v) { st.cues = !!v; }
     function setGhost(v) { st.ghost = !!v; }
     function setMute(v) { st.muteCounts = !!v; }
-    function setFullRotation(v) { st.fullRotation = !!v; }
+    function setStopAfter(reps) { st.stopAfter = reps | 0; }                          // 0 = loop forever
+    function setFullRotation(v) { st.stopAfter = v ? ((st.dance && st.dance.walls) || 1) : 0; }
     function setLoop(startCount, endCount) {
       st.loop = (startCount && endCount) ? { start: startCount, end: endCount } : null;
       st.startBeat = wrapBeat(st.startBeat);
-      if (st.playing) { st.startCtx = audio.currentTime; st.schedBeat = Math.ceil(st.startBeat - 1e-9); }
+      if (st.playing) { st.startPerf = perfNow(); st.lastClickCount = -1; }
       emit("loop", st.loop);
-    }
-
-    const LOOKAHEAD = 0.1, TICK = 25;
-    function schedule() {
-      if (!st.playing) return;
-      const bd = beatDur(), { lo, hi } = loopSpan(), span = hi - lo;
-      while (true) {
-        const t = st.startCtx + (st.schedBeat - st.startBeat) * bd;
-        if (t >= audio.currentTime + LOOKAHEAD) break;
-        if (t >= audio.currentTime - 0.06) {
-          const local = lo + (((st.schedBeat - lo) % span) + span) % span;
-          const countIdx = Math.round(local);                    // 0-based beat in dance
-          const accent = (countIdx % 8) === 0;
-          beep(t, accent); haptic(accent);
-        }
-        st.schedBeat++;
-      }
-      setTimeout(schedule, TICK);
     }
 
     // ---------- step mode ----------
@@ -212,8 +203,8 @@
       const { lo, hi } = loopSpan();
       let b = ((count - 1) - lo); const span = hi - lo; b = lo + ((b % span) + span) % span;
       st.stepFrom = st.stepBeat; st.stepTo = b; st.stepBeat = b; st.startBeat = b;
-      st.stepAnimStart = (global.performance || Date).now(); st.stepAnimating = true;
-      if (audio) { const accent = (Math.round(b) % 8) === 0; beep(audio.currentTime + 0.001, accent); haptic(accent); }
+      st.stepAnimStart = perfNow(); st.stepAnimating = true;
+      if (!st.muteCounts) { const accent = (Math.round(b) % 8) === 0; beep(accent); haptic(accent); }   // ensureAudio() already ran above (tap gesture)
       emit("step", Math.round(b) + 1);
     }
     function stepNext() { setStepMode(true); stepTo(Math.round(st.stepBeat) + 2); }
@@ -304,11 +295,11 @@
       frames++; if (now - fpsT >= 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; if (opts.onFps) opts.onFps(fps); }
 
       let B = renderBeat();
-      // handle full-rotation stop + wrap
+      // stop after N reps when requested (All-walls = walls, play-once = 1); 0 = loop forever
       const { lo, hi } = loopSpan(), span = hi - lo;
-      if (st.playing && !st.stepMode) {
+      if (st.playing && !st.stepMode && st.stopAfter > 0) {
         const reps = Math.floor((B - lo) / span);
-        if (st.fullRotation && reps >= (st.dance.walls || 1)) { st.startBeat = lo; pause(); B = lo; if (opts.onComplete) opts.onComplete(); }
+        if (reps >= st.stopAfter) { st.startBeat = lo; pause(); B = lo; if (opts.onComplete) opts.onComplete(); }
       }
       const Bw = wrapBeat(B);
       const facingRad = facingAt(st.TL, Bw) * Math.PI / 180 * (st.mirror ? -1 : 1);
@@ -337,6 +328,11 @@
         const wall = ((Math.round(facingAt(st.TL, Bw) / 90) % 4) + 4) % 4;
         if (opts.onWall) opts.onWall(wall, WALL_LABELS[wall]);
       }
+      // metronome tick — locked to the on-screen count, only while genuinely playing (and not a muted hero loop)
+      if (st.playing && !st.stepMode && !st.muteCounts && count !== st.lastClickCount) {
+        st.lastClickCount = count;
+        const accent = ((count - 1) % 8) === 0; beep(accent); haptic(accent);
+      }
       if (opts.onCue && st.cues) {
         const ev = st.TL.perCount[count];
         if (ev && ev.styling_note && (Bw % 1) < 0.4) opts.onCue(ev.styling_note, true);
@@ -347,8 +343,9 @@
     function emit(type, val) { if (opts.on) opts.on(type, val); }
     function load(dance) {
       st.dance = dance; st.bpm = dance.bpm || 96; st.TL = buildTimeline(dance);
-      const { lo } = loopSpan(); st.startBeat = 0; st.stepBeat = 0; st.schedBeat = 0; st.lastCount = -1;
-      st.loop = null; st.fullRotation = false; st.trails.L.length = 0; st.trails.R.length = 0;
+      st.startBeat = 0; st.startPerf = perfNow(); st.stepBeat = 0; st.lastCount = -1; st.lastClickCount = -1;
+      st.loop = null; st.stopAfter = 0; st.playing = false; st.stepMode = false;
+      st.trails.L.length = 0; st.trails.R.length = 0;
       return api;
     }
 
@@ -356,7 +353,7 @@
     fpsT = (global.performance || Date).now(); raf = requestAnimationFrame(frame);
 
     const api = {
-      load, play, pause, toggle, restart, setTempo, setMirror, setCues, setGhost, setMute, setFullRotation, setLoop,
+      load, play, pause, toggle, restart, setTempo, setMirror, setCues, setGhost, setMute, setFullRotation, setStopAfter, setLoop,
       setStepMode, stepTo, stepNext, stepPrev, resize, ensureAudio,
       get playing() { return st.playing; }, get stepMode() { return st.stepMode; },
       get mirror() { return st.mirror; }, get tempoPct() { return st.tempoPct; }, get loop() { return st.loop; },

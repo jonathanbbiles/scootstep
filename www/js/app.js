@@ -218,7 +218,9 @@
       });
     }
     function ensureAudio() {
-      if (!audio) { audio = new Audio(); audio.preload = "none";
+      if (!audio) {
+        audio = new Audio(); audio.preload = "none"; audio.playsInline = true;
+        try { audio.setAttribute("playsinline", ""); audio.setAttribute("webkit-playsinline", ""); } catch (e) {}
         audio.addEventListener("ended", function () { setBtn(current, "idle"); current = null; });
         audio.addEventListener("error", function () { if (current) { setBtn(current, "error"); current = null; } });
       }
@@ -312,102 +314,127 @@
   function setMastery(id, m) { if (m === "want") { S.want[id] = true; delete S.mastery[id]; } else { S.mastery[id] = m; delete S.want[id]; } save(); }
 
   /* ---------------- PLAYER ---------------- */
-  var eng = null, playerDance = null, playerMode = "watch", chunkIdx = 0, ghostOn = true, loopOn = true, chunkPlaying = false, sessionCompleted = false;
+  var eng = null, playerDance = null, playerMode = "watch";
+  var sectionIdx = 0, ghostOn = true, loopOn = true, watchLoop = true, chunkPlaying = false, sessionCompleted = false;
   function ensureEngine() {
     if (eng) return eng;
     eng = window.ScootEngine.create($("#p-canvas"), {
       colors: COLORS, getSettings: function () { return S.settings; }, haptic: nativeHaptic,
-      onLap: function () { onDanceComplete(); },
+      onLap: function () { onDanceComplete(); },   // first full lap while looping the whole dance
       onCount: function (count, phrase, ev) {
         $("#p-count").textContent = count;
         var t = instrText(ev); $("#p-instr").textContent = t.main || "…"; $("#p-instr2").textContent = t.sub || "";
         $("#p-phrase").textContent = phrase ? phrase.label.replace(/^Counts \d+.\d+:\s*/, "") : "";
         $$("#p-ribbon .rc").forEach(function (el, i) { el.classList.toggle("active", i === (count - 1) % 8); });
-        if (playerMode === "learn") { var c = Math.ceil(count / 8); if (c !== chunkIdx + 1) {} }
       },
       onWall: function (i, label) { $("#p-wall").textContent = label; },
       onCue: function (txt, show) { var c = $("#p-cue"); if (show) { c.textContent = txt; c.classList.add("show"); } else c.classList.remove("show"); },
-      onComplete: function () { onDanceComplete(); }
+      onComplete: function () {   // a bounded run finished (play-once / all-walls / section-once)
+        chunkPlaying = false; $("#p-play").textContent = "▶ Play"; $("#p-step-play").textContent = "▶ Play section";
+        if (eng && eng.loop === null) onDanceComplete();   // only celebrate when it was the WHOLE dance, not one section
+      }
     });
     return eng;
   }
   function buildRibbon() { var r = $("#p-ribbon"); r.innerHTML = ""; for (var i = 1; i <= 8; i++) { var d = document.createElement("div"); d.className = "rc b1"; d.textContent = i; r.appendChild(d); } }
+  function sectionCount() { return Math.ceil(playerDance.counts / 8); }
+  function sectionBounds() { if (sectionIdx === -1) return [1, playerDance.counts]; var s = sectionIdx * 8 + 1; return [s, Math.min(playerDance.counts, s + 7)]; }
+  function buildSections() {
+    var host = $("#p-sections"); if (!host) return; host.innerHTML = "";
+    var n = sectionCount();
+    for (var i = 0; i < n; i++) { var s = i * 8 + 1, e = Math.min(playerDance.counts, s + 7); host.insertAdjacentHTML("beforeend", '<button class="chip sec" data-sec="' + i + '">' + s + '–' + e + '</button>'); }
+    if (n > 1) host.insertAdjacentHTML("beforeend", '<button class="chip sec" data-sec="whole">Whole dance</button>');
+    $$("[data-sec]", host).forEach(function (b) { b.onclick = function () { selectSection(b.dataset.sec === "whole" ? -1 : +b.dataset.sec); }; });
+  }
+  function markSection() { $$("#p-sections .sec").forEach(function (b) { b.classList.toggle("on", (b.dataset.sec === "whole" && sectionIdx === -1) || (+b.dataset.sec === sectionIdx)); }); }
   function openPlayer(d, mode) {
     try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
-    playerDance = d; playerMode = mode === "learn" ? "learn" : "watch"; chunkIdx = 0; sessionCompleted = false; chunkPlaying = false;
+    playerDance = d; playerMode = (mode === "learn") ? "learn" : "watch"; sectionIdx = 0; sessionCompleted = false; chunkPlaying = false;
     $("#player").classList.add("on");
     $("#p-name").textContent = d.name + (d.glossary ? " · basic" : "");
     $("#p-credit").textContent = d.glossary ? (d.definition ? d.definition.slice(0, 60) + "…" : "") : d.choreographer_credit;
     $("#p-canvas").setAttribute("aria-label", "Top-down animation of two boots for " + d.name + ", " + d.counts + " counts, " + d.walls + " walls");
     buildRibbon();
     ensureEngine(); eng.load(d);
-    // tempo range per tier
     var tr = window.Monetize.tempoRange(), tempo = $("#p-tempo");
     tempo.min = tr[0]; tempo.max = tr[1]; if (+tempo.value < tr[0]) tempo.value = tr[0]; if (+tempo.value > tr[1]) tempo.value = tr[1];
     $("#p-tempolock").classList.toggle("hide", !(window.Monetize.enabled() && !window.Monetize.hasPro()));
     setTempoUI(+tempo.value);
-    setPlayerMode(mode === "glossary" ? "watch" : playerMode, d.glossary);
-    if (d.glossary) { $("#p-mode-watch").parentNode.classList.add("hide"); } else { $("#p-mode-watch").parentNode.classList.remove("hide"); }
-    // autostart for watch/glossary
-    setTimeout(function () { eng.ensureAudio(); if (playerMode !== "learn") { eng.play(); $("#p-play").textContent = "❚❚ Pause"; } }, 60);
+    if (d.glossary) { $("#p-mode-watch").parentNode.classList.add("hide"); playerMode = "watch"; } else { $("#p-mode-watch").parentNode.classList.remove("hide"); }
+    setPlayerMode(playerMode);
+    // Watch/glossary: start immediately, in the SAME gesture that opened the player (iOS needs a gesture to start audio)
+    if (playerMode === "watch") { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.play(); $("#p-play").textContent = "❚❚ Pause"; }
   }
   function closePlayer() { if (eng) eng.pause(); $("#player").classList.remove("on"); }
-  function setPlayerMode(mode, isGlossary) {
+  function setPlayerMode(mode) {
     playerMode = mode;
     $("#p-mode-watch").classList.toggle("on", mode === "watch"); $("#p-mode-learn").classList.toggle("on", mode === "learn");
     $("#ctl-watch").classList.toggle("hide", mode !== "watch");
     $("#ctl-learn").classList.toggle("hide", mode !== "learn");
+    chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
     if (mode === "learn") {
-      eng.pause(); eng.setGhost(ghostOn); eng.setStepMode(true);
-      $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop chunk: " + (loopOn ? "On" : "Off");
-      $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost path: " + (ghostOn ? "On" : "Off");
-      gotoChunk(0); $("#p-play").textContent = "▶ Play";
-    } else { eng.setStepMode(false); eng.setLoop(null); }
+      eng.pause(); eng.setStepMode(true); eng.setGhost(ghostOn);
+      buildSections();
+      $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off");
+      $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost: " + (ghostOn ? "On" : "Off");
+      selectSection(sectionIdx); $("#p-play").textContent = "▶ Play";
+    } else {
+      eng.setStepMode(false); eng.setLoop(null); eng.setStopAfter(watchLoop ? 0 : 1);
+      $("#p-loop-watch").classList.toggle("on", watchLoop); $("#p-loop-watch").textContent = "🔁 Loop dance: " + (watchLoop ? "On" : "Off");
+      $("#p-rotate").classList.remove("on");
+    }
   }
-  function setTempoUI(v) { $("#p-tempoval").textContent = v + "%"; $("#p-bpm").textContent = Math.round((playerDance.bpm || 96) * v / 100) + " BPM"; eng.setTempo(v); }
-  function chunkBounds() { var s = chunkIdx * 8 + 1, e = Math.min(playerDance.counts, s + 7); return [s, e]; }
-  function gotoChunk(i) {
-    var maxChunk = Math.ceil(playerDance.counts / 8) - 1; chunkIdx = Math.max(0, Math.min(maxChunk, i));
-    chunkPlaying = false; $("#p-step-play").textContent = "▶ Play chunk";
-    var b = chunkBounds(), s = b[0], e = b[1];
-    $("#p-chunklabel").textContent = "Counts " + s + "–" + e;
+  function setTempoUI(v) { $("#p-tempoval").textContent = v + "%"; $("#p-bpm").textContent = Math.round((playerDance.bpm || 96) * v / 100) + " BPM"; if (eng) eng.setTempo(v); }
+  function selectSection(idx) {
+    sectionIdx = idx; chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
+    var b = sectionBounds();
     eng.setStepMode(true);
-    if (loopOn) eng.setLoop(s, e); else eng.setLoop(null);
-    eng.stepTo(s);
-    $$("#p-ribbon .rc").forEach(function (el, idx) { el.classList.add("insel"); el.textContent = ((s - 1 + idx) % 8) + 1; });
+    if (idx === -1) eng.setLoop(null); else eng.setLoop(b[0], b[1]);   // section -> bounded (wrap while drilling); whole -> null
+    eng.stepTo(b[0]);
+    markSection();
+    $$("#p-ribbon .rc").forEach(function (el, i) { el.classList.add("insel"); el.textContent = ((b[0] - 1 + i) % 8) + 1; });
   }
   function onDanceComplete() {
     if (sessionCompleted) return; sessionCompleted = true;
     $("#p-play").textContent = "▶ Play";
     bumpStreak(); celebrate();
+    S.completions = (S.completions || 0) + 1;
     if (!S.mastery[playerDance.id] || S.mastery[playerDance.id] === "learning") toast("Nailed it. " + playerDance.name + " fears you now.");
     S.history.unshift({ id: playerDance.id, at: Date.now() }); S.history = S.history.slice(0, 40); save();
+    maybeAskReview();
+  }
+  // Native rating sheet (SKStoreReviewController) after a genuine success — never first launch, capped once.
+  function maybeAskReview() {
+    try {
+      if (S.reviewPrompted) return;
+      if ((S.completions || 0) < 1 && (S.sessions || 0) < 3) return;
+      S.reviewPrompted = true; S.reviewPromptAt = Date.now(); save();
+      setTimeout(function () { try { var P = window.Capacitor && window.Capacitor.Plugins; if (P && P.InAppReview && P.InAppReview.requestReview) P.InAppReview.requestReview(); } catch (e) {} }, 2600);
+    } catch (e) {}
   }
   // player controls
   $("#p-close").onclick = closePlayer;
   $("#p-mode-watch").onclick = function () { setPlayerMode("watch"); };
   $("#p-mode-learn").onclick = function () { setPlayerMode("learn"); };
-  $("#p-play").onclick = function () { eng.toggle(); $("#p-play").textContent = eng.playing ? "❚❚ Pause" : "▶ Play"; };
-  $("#p-restart").onclick = function () { eng.restart(); };
+  $("#p-play").onclick = function () { eng.ensureAudio(); if (!eng.playing) eng.setStopAfter(watchLoop ? 0 : 1); eng.toggle(); $("#p-play").textContent = eng.playing ? "❚❚ Pause" : "▶ Play"; };
+  $("#p-restart").onclick = function () { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.restart(); if (!eng.playing) eng.play(); $("#p-play").textContent = eng.playing ? "❚❚ Pause" : "▶ Play"; };
   $("#p-mirror").onclick = function () { eng.setMirror(!eng.mirror); $("#p-mirror").classList.toggle("on", eng.mirror); toast(eng.mirror ? "Mirror: facing you" : "Mirror: over the shoulder"); };
-  $("#p-rotate").onclick = function () { var on = !$("#p-rotate").classList.contains("on"); $("#p-rotate").classList.toggle("on", on); eng.setFullRotation(on); eng.restart(); if (on) { eng.play(); $("#p-play").textContent = "❚❚ Pause"; } toast(on ? "Full rotation — through all " + playerDance.walls + " walls" : "Loop mode"); };
+  $("#p-loop-watch").onclick = function () { watchLoop = !watchLoop; $("#p-loop-watch").classList.toggle("on", watchLoop); $("#p-loop-watch").textContent = "🔁 Loop dance: " + (watchLoop ? "On" : "Off"); eng.setStopAfter(watchLoop ? 0 : 1); if (watchLoop) $("#p-rotate").classList.remove("on"); };
+  $("#p-rotate").onclick = function () { eng.ensureAudio(); eng.setFullRotation(true); $("#p-rotate").classList.add("on"); watchLoop = false; $("#p-loop-watch").classList.remove("on"); $("#p-loop-watch").textContent = "🔁 Loop dance: Off"; eng.restart(); eng.play(); $("#p-play").textContent = "❚❚ Pause"; toast("Through all " + playerDance.walls + " walls, once"); };
   $("#p-tempo").addEventListener("input", function () { setTempoUI(+this.value); });
-  $("#p-step-play").onclick = function () { // drill: loop-play the current 8-count chunk
-    var b = chunkBounds();
+  $("#p-step-play").onclick = function () {          // Play/pause the selected section (loops per the Loop toggle)
     if (!chunkPlaying) {
-      eng.setStepMode(false); eng.setLoop(b[0], b[1]); eng.restart(); eng.ensureAudio(); eng.play();
+      eng.ensureAudio(); eng.setStepMode(false); eng.setStopAfter(loopOn ? 0 : 1); eng.restart(); eng.play();
       chunkPlaying = true; $("#p-step-play").textContent = "❚❚ Pause";
     } else {
-      eng.pause(); eng.setStepMode(true); eng.stepTo(b[0]);
-      chunkPlaying = false; $("#p-step-play").textContent = "▶ Play chunk";
+      var b = sectionBounds(); eng.pause(); eng.setStepMode(true); eng.stepTo(b[0]);
+      chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
     }
   };
-  $("#p-next").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play chunk"; eng.setStepMode(true); eng.stepNext(); };
-  $("#p-prev").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play chunk"; eng.setStepMode(true); eng.stepPrev(); };
-  $("#p-chunknext").onclick = function () { gotoChunk(chunkIdx + 1); };
-  $("#p-chunkprev").onclick = function () { gotoChunk(chunkIdx - 1); };
-  $("#p-loop").onclick = function () { loopOn = !loopOn; $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop chunk: " + (loopOn ? "On" : "Off"); gotoChunk(chunkIdx); };
-  $("#p-ghost").onclick = function () { ghostOn = !ghostOn; $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost path: " + (ghostOn ? "On" : "Off"); eng.setGhost(ghostOn); };
+  $("#p-next").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section"; eng.setStepMode(true); eng.stepNext(); };
+  $("#p-prev").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section"; eng.setStepMode(true); eng.stepPrev(); };
+  $("#p-loop").onclick = function () { loopOn = !loopOn; $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off"); };
+  $("#p-ghost").onclick = function () { ghostOn = !ghostOn; $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost: " + (ghostOn ? "On" : "Off"); eng.setGhost(ghostOn); };
 
   /* ---------------- ONBOARDING (Panic Mode) ---------------- */
   var obChoice = { when: null, exp: null };
@@ -505,9 +532,12 @@
     html += '<div class="card"><b style="font-weight:800">Text size</b><div class="p" style="margin:2px 0 6px">Bigger type across the whole app.</div><input type="range" id="set-text" min="0.9" max="1.35" step="0.05" value="' + (s.textScale || 1) + '" aria-label="Text size"></div>';
     html += '<div class="eyebrow" style="margin:16px 0 8px">ScootSteps Pro</div>';
     html += '<div class="card"><b style="font-weight:800">Membership</b><div class="p">' + (window.Monetize.hasPro() ? 'Pro is active. Thank you!' : 'Free — 5 dances, all basics, and (right now) everything else too.') + '</div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn sm" id="set-pro">See Pro</button><button class="btn sm ghost" id="set-restore">Restore</button></div></div>';
-    html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps ' + '· learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';
+    html += '<div class="eyebrow" style="margin:16px 0 8px">About</div>';
+    html += '<div class="card"><b style="font-weight:800">More from Jonathan</b><div class="p" style="margin:2px 0 9px">Art, stories, and what\'s next.</div><button class="btn sm" id="set-web">Visit jonathanscribbles.com ↗</button></div>';
+    html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps · learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';
     v.innerHTML = html;
     $("#set-back").onclick = function () { showView("home"); };
+    $("#set-web").onclick = function () { openExternal("https://jonathanscribbles.com"); };
     $$("#set-count [data-cs]").forEach(function (b) { b.onclick = function () { s.countStyle = b.dataset.cs; save(); renderSettings(); }; });
     $$("[data-tog]").forEach(function (b) { b.onclick = function () { s[b.dataset.tog] = !s[b.dataset.tog]; save(); renderSettings(); }; });
     $("#set-text").addEventListener("input", function () { s.textScale = +this.value; applyTextScale(); save(); });
@@ -589,13 +619,31 @@
   }
 
   /* ---------------- boot ---------------- */
-  window.Monetize.init(); window.Monetize.onChange(function () { if (current === "detail") { } });
+  // open an external URL in the system browser (Capacitor routes off-origin http(s) to Safari)
+  function openExternal(url) { try { window.open(url, "_blank"); } catch (e) { try { location.href = url; } catch (e2) {} } return false; }
+
+  // iOS: unlock the shared AudioContext on the very first user interaction, so Watch autostart,
+  // the count track, and song previews all actually make sound on device.
+  var _audioPrimed = false;
+  function primeAudio() {
+    if (_audioPrimed) return; _audioPrimed = true;
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!window.__ssAudioCtx && C) window.__ssAudioCtx = new C();
+      var ctx = window.__ssAudioCtx;
+      if (ctx) { if (ctx.state === "suspended") ctx.resume(); var b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0); }
+    } catch (e) {}
+  }
+  ["pointerdown", "touchend", "mousedown"].forEach(function (ev) { document.addEventListener(ev, primeAudio, { passive: true }); });
+
+  window.Monetize.init(); window.Monetize.onChange(function () {});
   applyTextScale();
   document.addEventListener("DOMContentLoaded", start);
   if (document.readyState !== "loading") start();
   var started = false;
   function start() {
     if (started) return; started = true;
+    S.sessions = (S.sessions || 0) + 1; save();       // session count feeds the rating-prompt gate
     showView("home");
     if (!S.onboarded) setTimeout(openOnboarding, 350);
   }
