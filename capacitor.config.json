@@ -1,0 +1,15 @@
+{
+  "appId": "com.jonathanbiles.scootstep",
+  "appName": "ScootSteps",
+  "webDir": "www",
+  "backgroundColor": "#1F3A5F",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#1F3A5F",
+    "scrollEnabled": true,
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "server": {
+    "iosScheme": "capacitor"
+  }
+}

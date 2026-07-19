@@ -1,0 +1,19 @@
+# deps
+node_modules/
+package-lock.json
+
+# Capacitor native project (regenerated at build time by `cap add ios` in Codemagic)
+ios/
+
+# build + test artifacts
+build/
+shots/
+*.log
+.DS_Store
+
+# dev-only harnesses that need extra deps (@napi-rs/canvas, jsdom) — kept out of the app bundle.
+# engine-schema-test.mjs + validate-dances.mjs are dependency-free and ARE committed (for the
+# "add a dance" workflow: node validate-dances.mjs).
+render-catalog.mjs
+smoke-test.mjs
+gen-icon.mjs

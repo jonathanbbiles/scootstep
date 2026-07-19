@@ -1,0 +1,104 @@
+# codemagic.yaml — ScootSteps · iOS → TestFlight (Capacitor 8 / SPM → archive the .xcodeproj)
+# Reconciled against the App Builder Template's PROVEN green file (ChordLoop lineage).
+# =============================================================================
+# FOR THE SIGNING SESSION (the only things to fill / confirm — code is done):
+#   1. <ASC_KEY_NAME>  → the reusable App Store Connect API key already stored in
+#      Codemagic (PLAYBOOK §0.3), e.g. "ChordLoopAPIKey".
+#   2. <NUMERIC_APP_ID> → App Store Connect → App Information, after the app record
+#      is created for bundle id  com.jonathanbiles.scootstep  (PLAYBOOK §5.2).
+#   3. Code signing identities must hold BOTH (PLAYBOOK §0.4):
+#        • cert    "JB_Shared_Distribution"  (the one shared Apple Distribution cert)
+#        • profile app_store profile for  com.jonathanbiles.scootstep  bound to it
+#      (create the App ID + that profile once — §0.4 step 2 — and Fetch/Upload it).
+#   Nothing else. No third-party API key (ScootSteps is fully offline). iPhone-only,
+#   portrait — so NO iPad 13" screenshots are required for the listing.
+# =============================================================================
+
+workflows:
+  ios-testflight:
+    name: ScootSteps iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: <ASC_KEY_NAME>
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: "com.jonathanbiles.scootstep"
+      vars:
+        BUNDLE_ID: "com.jonathanbiles.scootstep"
+        XCODE_PROJECT: "ios/App/App.xcodeproj"     # SPM path (Capacitor 8) — ChordLoop-proven default
+        XCODE_SCHEME: "App"
+        ASC_APP_ID: "<NUMERIC_APP_ID>"             # fill after the ASC app record exists (§5.2)
+      node: 22
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Install npm dependencies
+        script: npm install
+
+      - name: Add + sync iOS platform (Capacitor)
+        script: |
+          [ -d ios ] || npx cap add ios
+          npx cap sync ios          # copies www/ -> ios/App/App/public/ (the SHIPPED bundle)
+
+      - name: ScootSteps native patches — iPhone-only + portrait lock
+        script: |
+          set -e
+          PLIST=ios/App/App/Info.plist
+          # Portrait-only (brief: portrait-primary, iPhone-only build 1)
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$PLIST" 2>/dev/null || true
+          # iPhone-only device family (sidesteps the iPad-13in screenshot blocker that rejected Slow Burn)
+          /usr/libexec/PlistBuddy -c "Delete :UIDeviceFamily" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIDeviceFamily:0 integer 1" "$PLIST"
+          # canonical device-family switch in the Xcode target too
+          find ios -name project.pbxproj -exec sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' {} +
+          echo "Patched Info.plist:"; /usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrientations" "$PLIST" || true
+
+      - name: Embed the app icon (replace Capacitor default)
+        script: |
+          # appicon-1024.png lives at the repo root (ASSETS-SPEC.md). Re-embedding on every build
+          # means the Capacitor placeholder (an automatic App Store rejection) can never survive.
+          ICONSET="ios/App/App/Assets.xcassets/AppIcon.appiconset"
+          rm -rf "$ICONSET"; mkdir -p "$ICONSET"
+          cp appicon-1024.png "$ICONSET/AppIcon-1024.png"
+          cat > "$ICONSET/Contents.json" <<'JSON'
+          { "images": [ { "filename": "AppIcon-1024.png", "idiom": "universal", "platform": "ios", "size": "1024x1024" } ], "info": { "author": "xcode", "version": 1 } }
+          JSON
+          echo "Embedded app icon:"; ls -la "$ICONSET"
+
+      - name: Set build number + export-compliance flag
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$ASC_APP_ID" 2>/dev/null || echo 0)
+          NEXT=$(( LATEST + 1 ))
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST"
+          # No custom crypto -> skip the per-build export-compliance prompt.
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST"
+
+      - name: Set up code signing — apply the stored profile + the ONE shared cert (no mint, no revoke)
+        script: |
+          security find-identity -v -p codesigning || true
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/" || true
+          xcode-project use-profiles
+
+      - name: Build signed IPA (SPM → --project)
+        script: |
+          xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # "Post-processing failed" is usually just the external-beta step — the binary still
+        # uploads to TestFlight fine. Check TestFlight before calling it a failure (GOTCHAS.md).
+        # Final "Submit for Review" is done by hand (PLAYBOOK §8).
