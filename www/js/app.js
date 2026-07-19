@@ -67,6 +67,7 @@
   /* ---------------- router ---------------- */
   var current = "home", lastTab = "home";
   function showView(id) {
+    try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
     $$(".view").forEach(function (v) { v.classList.remove("is-active"); });
     var v = $("#view-" + id); if (v) v.classList.add("is-active");
     $$(".tab").forEach(function (t) { var on = t.dataset.view === id; t.classList.toggle("on", on); t.setAttribute("aria-selected", on ? "true" : "false"); });
@@ -199,18 +200,69 @@
   }
   $("#glo-search").addEventListener("input", function () { if (current === "glossary") renderGlossary(); });
 
+  /* ---------------- SONG PREVIEWS (iTunes Search API, 30-sec clip, JSONP -> no CORS) ----------------
+     For song RECOGNITION only — the variable-tempo practice still runs on the synth count track.
+     JSONP (script + callback) works in the Capacitor webview without CORS issues. Graceful when
+     no preview is found: keep the Apple Music / Spotify "open full song" deep links. */
+  var Preview = (function () {
+    var audio = null, current = null, cache = {};                 // cache term -> previewUrl | null
+    function jsonp(term) {
+      return new Promise(function (resolve) {
+        var cb = "__it" + Math.random().toString(36).slice(2), s = document.createElement("script"), done = false;
+        window[cb] = function (d) { done = true; var t = d && d.results && d.results[0]; cleanup(); resolve(t && t.previewUrl ? t.previewUrl : null); };
+        function cleanup() { try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); clearTimeout(to); }
+        var to = setTimeout(function () { if (!done) { cleanup(); resolve(null); } }, 7000);
+        s.onerror = function () { if (!done) { cleanup(); resolve(null); } };
+        s.src = "https://itunes.apple.com/search?media=music&entity=song&limit=1&callback=" + cb + "&term=" + encodeURIComponent(term);
+        document.head.appendChild(s);
+      });
+    }
+    function ensureAudio() {
+      if (!audio) { audio = new Audio(); audio.preload = "none";
+        audio.addEventListener("ended", function () { setBtn(current, "idle"); current = null; });
+        audio.addEventListener("error", function () { if (current) { setBtn(current, "error"); current = null; } });
+      }
+      return audio;
+    }
+    function setBtn(id, state) {
+      var b = document.querySelector('[data-prev="' + id + '"]'); if (!b) return;
+      b.classList.toggle("playing", state === "playing");
+      b.textContent = state === "loading" ? "…" : state === "playing" ? "❚❚ Preview" : state === "error" ? "no preview" : "▶ Preview";
+      b.disabled = state === "error";
+    }
+    function toggle(id, term) {
+      ensureAudio();
+      if (current === id && !audio.paused) { audio.pause(); setBtn(id, "idle"); current = null; return; }
+      if (current && current !== id) { audio.pause(); setBtn(current, "idle"); }
+      setBtn(id, "loading");
+      var go = function (url) {
+        if (!url) { setBtn(id, "error"); current = null; toast("No 30-sec preview for that one — try “open full song.”"); return; }
+        audio.src = url; current = id;
+        var p = audio.play();
+        if (p && p.then) p.then(function () { setBtn(id, "playing"); }).catch(function () { setBtn(id, "error"); current = null; });
+        else setBtn(id, "playing");
+      };
+      if (cache[term] !== undefined) go(cache[term]);
+      else jsonp(term).then(function (url) { cache[term] = url; go(url); });
+    }
+    function stopAll() { if (audio && !audio.paused) audio.pause(); if (current) { setBtn(current, "idle"); current = null; } }
+    return { toggle: toggle, stopAll: stopAll };
+  })();
+  window.SS_Preview = Preview;   // exposed for the headless test
+
   /* ---------------- DANCE DETAIL ---------------- */
   var heroEngine = null;
   function openDetail(id) {
     var d = byId[id]; if (!d) return;
     var v = $("#view-detail");
     var locked = window.Monetize.enabled() && !window.Monetize.isUnlocked(d);
-    var songHtml = (d.songs || []).map(function (s) {
-      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line)">' +
-        '<div><b style="font-weight:800">' + esc(s.title) + '</b><div class="p">' + esc(s.artist) + '</div></div>' +
-        '<div style="display:flex;gap:6px">' +
-        '<a class="chip amber" href="' + s.apple + '" target="_blank" rel="noopener">Apple</a>' +
-        '<a class="chip" href="' + s.spotify + '" target="_blank" rel="noopener">Spotify</a></div></div>';
+    var songHtml = (d.songs || []).map(function (s, i) {
+      var pid = d.id + "_" + i;
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--line)">' +
+        '<div style="min-width:0"><b style="font-weight:800">' + esc(s.title) + '</b>' +
+        '<div class="p">' + esc(s.artist) + ' · <a href="' + s.apple + '" target="_blank" rel="noopener" style="color:var(--amber-bright);font-weight:700">Apple Music</a> · <a href="' + s.spotify + '" target="_blank" rel="noopener" style="color:var(--muted);font-weight:700">Spotify</a></div></div>' +
+        '<button class="chip prevbtn" data-prev="' + pid + '" data-term="' + esc(s.title + " " + s.artist) + '" aria-label="Play 30-second preview of ' + esc(s.title) + '">▶ Preview</button>' +
+        '</div>';
     }).join('');
     var mastery = S.mastery[d.id] || null, dl = !!S.downloaded[d.id], want = !!S.want[d.id];
     var html = '';
@@ -248,7 +300,8 @@
       onWall: function (i, label) { var e = $("#d-wall"); if (e) e.textContent = label; } });
     heroEngine.load(d); heroEngine.setMute(true); setTimeout(function () { heroEngine.ensureAudio(); heroEngine.setMute(true); heroEngine.play(); }, 60);
     // wire
-    $("#d-back").onclick = function () { if (heroEngine) { heroEngine.destroy(); heroEngine = null; } showView(lastTab); };
+    $("#d-back").onclick = function () { Preview.stopAll(); if (heroEngine) { heroEngine.destroy(); heroEngine = null; } showView(lastTab); };
+    $$("[data-prev]", v).forEach(function (b) { b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.term); }; });
     $("#d-share").onclick = function () { exportCheatSheet(d); };
     var un = $("#d-unlock"); if (un) un.onclick = openPaywall;
     var lb = $("#d-learn"); if (lb) lb.onclick = function () { openPlayer(d, "learn"); };
@@ -280,6 +333,7 @@
   }
   function buildRibbon() { var r = $("#p-ribbon"); r.innerHTML = ""; for (var i = 1; i <= 8; i++) { var d = document.createElement("div"); d.className = "rc b1"; d.textContent = i; r.appendChild(d); } }
   function openPlayer(d, mode) {
+    try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
     playerDance = d; playerMode = mode === "learn" ? "learn" : "watch"; chunkIdx = 0; sessionCompleted = false; chunkPlaying = false;
     $("#player").classList.add("on");
     $("#p-name").textContent = d.name + (d.glossary ? " · basic" : "");
