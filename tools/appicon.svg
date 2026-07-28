@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<!-- ============================================================================
+     ScootSteps app icon — a COWBOY BOOT.
+
+     The old icon kept getting read as "a little dog", for structural reasons:
+       · the shaft was a big pale CREAM slab, which reads as fur, not leather;
+       · a dark rounded block sat at the bottom-left, exactly where a muzzle goes;
+       · one hooked pull-strap at the top-left read as a single ear (or a tail);
+       · nothing about it was specifically western — no heel, no spur, no stitching,
+         and a blunt rounded toe.
+
+     Every one of those cues is gone. What replaces them are the five things that
+     make a boot unmistakable even at 60 px:
+       1. a POINTED, upturned toe          4. a SPUR with a rowel, at the heel
+       2. a stacked CUBAN HEEL under the   5. western STITCHING and a lone star
+          rear of a clearly separate sole     across the shaft
+       3. TWO symmetrical mule-ear pull straps (one ear reads as an animal;
+          two read as bootstraps)
+     ============================================================================ -->
+<defs>
+  <radialGradient id="bg" cx="50%" cy="6%" r="108%">
+    <stop offset="0%"  stop-color="#335C8E"/>
+    <stop offset="46%" stop-color="#1F3A5F"/>
+    <stop offset="100%" stop-color="#0D2033"/>
+  </radialGradient>
+  <linearGradient id="leather" x1="0.1" y1="0" x2="0.55" y2="1">
+    <stop offset="0%"  stop-color="#EDA457"/>
+    <stop offset="45%" stop-color="#C87828"/>
+    <stop offset="100%" stop-color="#8A4A11"/>
+  </linearGradient>
+  <linearGradient id="vamp" x1="0.15" y1="0" x2="0.8" y2="1">
+    <stop offset="0%"  stop-color="#C87828"/>
+    <stop offset="52%" stop-color="#9E5717"/>
+    <stop offset="100%" stop-color="#6B370B"/>
+  </linearGradient>
+  <linearGradient id="sole" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%"  stop-color="#633B14"/>
+    <stop offset="100%" stop-color="#3A2007"/>
+  </linearGradient>
+  <linearGradient id="heel" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0%"  stop-color="#54300F"/>
+    <stop offset="100%" stop-color="#2B1605"/>
+  </linearGradient>
+  <linearGradient id="steel" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0%"  stop-color="#F6F2E7"/>
+    <stop offset="100%" stop-color="#A39A88"/>
+  </linearGradient>
+  <filter id="drop" x="-30%" y="-30%" width="170%" height="170%">
+    <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000" flood-opacity="0.45"/>
+  </filter>
+</defs>
+
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<ellipse cx="560" cy="944" rx="330" ry="46" fill="#F2A24E" opacity="0.12"/>
+
+<!-- a scoot: the boot is MOVING — the "step" in ScootSteps -->
+<g stroke="#F2A24E" stroke-linecap="round" fill="none">
+  <path d="M120 560 h104" stroke-width="24" opacity="0.75"/>
+  <path d="M88  652 h146" stroke-width="24" opacity="0.95"/>
+  <path d="M130 744 h92"  stroke-width="24" opacity="0.6"/>
+</g>
+
+<g filter="url(#drop)">
+
+  <!-- ── SPUR: heel band + 8-point rowel, tucked right against the heel ── -->
+  <path d="M336 852 q-62 26 -50 84" fill="none" stroke="#54300F" stroke-width="26" stroke-linecap="round"/>
+  <path d="M336 852 q-62 26 -50 84" fill="none" stroke="#8A4A11" stroke-width="12" stroke-linecap="round"/>
+  <g transform="translate(268 944)">
+    <g fill="url(#steel)" stroke="#4A3A22" stroke-width="4" stroke-linejoin="round">
+      <path d="M0 -46 L12 -12 L46 0 L12 12 L0 46 L-12 12 L-46 0 L-12 -12 Z"/>
+      <path d="M33 -33 L13 -9 L33 33 L9 13 L-33 33 L-13 9 L-33 -33 L-9 -13 Z"/>
+    </g>
+    <circle r="11" fill="#8C8474" stroke="#4A3A22" stroke-width="4"/>
+  </g>
+
+  <!-- ── SOLE + WELT: one continuous sole from heel to the pointed toe ── -->
+  <path d="M316 798 l562 -47 q34 -2 34 29 q0 32 -33 36 l-563 48 Z"
+        fill="url(#sole)" stroke="#2A1604" stroke-width="9" stroke-linejoin="round"/>
+
+  <!-- ── STACKED CUBAN HEEL, under the REAR of the sole, tapering to the floor ── -->
+  <path d="M320 856 l168 -14 l-26 142 q-2 16 -20 17 l-106 7 q-18 1 -18 -15 Z"
+        fill="url(#heel)" stroke="#2A1604" stroke-width="9" stroke-linejoin="round"/>
+  <g stroke="#A9631F" stroke-width="7" opacity="0.65" stroke-linecap="round">
+    <path d="M326 902 l159 -13"/>
+    <path d="M328 950 l152 -13"/>
+  </g>
+
+  <!-- ── FOOT / VAMP with a POINTED, slightly upturned toe ── -->
+  <path d="M348 624
+           L628 608
+           C736 606 836 646 900 706
+           Q916 721 894 732
+           C828 760 596 788 354 814 Z"
+        fill="url(#vamp)" stroke="#5A3007" stroke-width="11" stroke-linejoin="round"/>
+  <!-- vamp seam: the V where the shaft meets the foot -->
+  <path d="M356 636 q112 52 118 148" fill="none" stroke="#FAF5EC" stroke-width="10"
+        stroke-dasharray="20 20" stroke-linecap="round" opacity="0.88"/>
+  <!-- toe-cap seam, parallel to the point -->
+  <path d="M690 668 q42 66 40 138" fill="none" stroke="#FAF5EC" stroke-width="10"
+        stroke-dasharray="20 20" stroke-linecap="round" opacity="0.88"/>
+
+  <!-- ── SHAFT: wide shallow scallop at the top, tapered, leather brown ── -->
+  <path d="M348 316
+           C354 282 378 270 404 262
+           L574 214
+           C606 206 622 220 622 248
+           L628 606
+           L352 622 Z"
+        fill="url(#leather)" stroke="#5A3007" stroke-width="11" stroke-linejoin="round"/>
+
+  <!-- western stitching + a lone star: the shaft is where a boot shows off -->
+  <g fill="none" stroke="#FAF5EC" stroke-width="10" stroke-linecap="round" opacity="0.9">
+    <path d="M372 386 L610 318" stroke-dasharray="21 21"/>
+    <path d="M374 442 L614 380" stroke-dasharray="21 21"/>
+  </g>
+  <path d="M498 468 l21 50 l54 4 l-41 36 l13 53 l-47 -30 l-47 30 l13 -53 l-41 -36 l54 -4 Z"
+        fill="#F2A24E" stroke="#5A3007" stroke-width="8" stroke-linejoin="round"/>
+
+  <!-- The top-line binding, following the slope. No pull straps: two symmetrical things
+       standing up out of a shaft read as ears, which is the whole defect being fixed here. -->
+  <path d="M356 306 C364 280 384 272 408 264 L574 232"
+        fill="none" stroke="#8A4A11" stroke-width="26" stroke-linecap="round"/>
+</g>
+</svg>

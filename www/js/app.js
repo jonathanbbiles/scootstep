@@ -68,6 +68,9 @@
   var current = "home", lastTab = "home";
   function showView(id) {
     try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
+    // Leaving Dance Detail used to leave its hero engine running a requestAnimationFrame loop on
+    // a canvas nobody can see — forever, burning frames and battery behind every other screen.
+    if (current === "detail" && id !== "detail" && heroEngine) { try { heroEngine.destroy(); } catch (e) {} heroEngine = null; }
     $$(".view").forEach(function (v) { v.classList.remove("is-active"); });
     var v = $("#view-" + id); if (v) v.classList.add("is-active");
     $$(".tab").forEach(function (t) { var on = t.dataset.view === id; t.classList.toggle("on", on); t.setAttribute("aria-selected", on ? "true" : "false"); });
@@ -112,6 +115,9 @@
     html += '<div class="prow" style="display:flex;gap:10px">' +
       '<button class="btn" id="go-library">💃 Browse dances</button>' +
       '<button class="btn" id="go-basics">👣 Learn the basics</button></div>';
+    // A visible way out to Jonathan's site from the FIRST screen — it used to exist only inside
+    // Settings, behind the gear icon, where it was reported as "no link anywhere".
+    html += '<button class="btn ghost" id="home-web" style="margin-top:14px">🌵 More from Jonathan — jonathanscribbles.com ↗</button>';
     v.innerHTML = html;
     // wire
     $("#home-settings").onclick = function () { showView("settings"); };
@@ -119,6 +125,7 @@
     var ps = $("#plan-start"); if (ps) ps.onclick = function () { openDetail(plan.dance_ids[0]); };
     $("#go-library").onclick = function () { showView("library"); };
     $("#go-basics").onclick = function () { showView("glossary"); };
+    $("#home-web").onclick = function () { openExternal("https://jonathanscribbles.com"); };
     mountThumbs(v);
     $$("[data-open]", v).forEach(function (el) { el.onclick = function () { openDetail(el.dataset.open); }; });
   }
@@ -285,9 +292,71 @@
       else { setBtn(id, "loading"); resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); play(id, hit); }); }
     }
     function stopAll() { if (audio && !audio.paused) audio.pause(); if (current) { setBtn(current, "idle"); current = null; } }
-    return { toggle: toggle, stopAll: stopAll, prefetch: prefetch };
+    function cached(title, artist) { return cache[key(title, artist)]; }
+    return { toggle: toggle, stopAll: stopAll, prefetch: prefetch, resolve: resolve, cached: cached };
   })();
   window.SS_Preview = Preview;   // exposed for the headless test
+
+  /* ---------------- MUSIC IN THE PLAYER ----------------
+     Before this, the ONLY sound anywhere in Watch or Learn was the synth count track — the song
+     previews lived on the Dance Detail screen and nowhere else. "None of the music works" in
+     Start Learning was literally true: there was no music there to work.
+
+     What we can legitimately play is Apple's 30-second preview, so that is what this loops, with
+     an honest label and a one-tap deep link to the full song. It is a SEPARATE layer from the
+     count track on purpose — the count track is tempo-variable (40–120%) and the record is not,
+     so they can never be locked together. Mute the counts if you want the song alone.
+
+     iOS rule honoured: the element is created and its src is set when the player OPENS, so the
+     Music tap only has to call play() — synchronously, inside the gesture. */
+  var Music = (function () {
+    var el = null, url = null, playing = false, songLabel = "", fullLink = "";
+    function ensure() {
+      if (!el) {
+        el = new Audio(); el.loop = true; el.preload = "auto"; el.playsInline = true;
+        try { el.setAttribute("playsinline", ""); el.setAttribute("webkit-playsinline", ""); } catch (e) {}
+        el.addEventListener("pause", function () { playing = false; });
+        el.addEventListener("error", function () { playing = false; });
+      }
+      return el;
+    }
+    var onReady = null;
+    function load(dance, ready) {                           // called on openPlayer — warms the element
+      stop(); url = null; fullLink = ""; songLabel = ""; onReady = ready || null;
+      var s = (dance.songs || [])[0];
+      if (!s) return;
+      songLabel = s.title;
+      fullLink = s.apple || "";
+      var want = dance.id;
+      var hit = Preview.cached(s.title, s.artist);
+      if (hit) { apply(hit); return; }
+      Preview.resolve(s.title, s.artist).then(function (h) {
+        if (!h || want !== currentDanceId) return;              // a different dance opened meanwhile
+        apply(h); if (onReady) onReady();
+      });
+    }
+    var currentDanceId = null;
+    function setDance(id) { currentDanceId = id; }
+    function apply(hit) {
+      if (hit.view) fullLink = hit.view;
+      if (!hit.preview) return;
+      url = hit.preview;
+      try { ensure().src = url; ensure().load(); } catch (e) {}   // buffered and ready before the tap
+    }
+    function play() {                                       // MUST be called inside a user gesture
+      if (!url) return false;
+      var a = ensure();
+      if (a.src !== url) { a.src = url; }
+      var p = a.play(); playing = true;
+      if (p && p.catch) p.catch(function () { playing = false; });
+      return true;
+    }
+    function stop() { if (el && !el.paused) { try { el.pause(); } catch (e) {} } playing = false; }
+    function toggle() { if (playing) { stop(); return false; } return play(); }
+    return { load: load, play: play, stop: stop, toggle: toggle, setDance: setDance,
+             get playing() { return playing; }, get ready() { return !!url; },
+             get label() { return songLabel; }, get fullLink() { return fullLink; } };
+  })();
 
   /* ---------------- DANCE DETAIL ---------------- */
   var heroEngine = null;
@@ -319,7 +388,7 @@
     if (d.definition) html += '<div class="p" style="margin-bottom:12px">' + esc(d.definition) + '</div>';
     html += '<div class="p" style="margin-bottom:14px">Choreography: ' + esc(d.choreographer_credit) + '. Songs referenced for practice only — we play an original count track, never the record.</div>';
     if (locked) {
-      html += '<div class="card spotlight"><div class="eyebrow">ScootSteps Pro</div><div class="h2">Unlock the full catalog</div><div class="p">This one\'s part of Pro. Your 5 free dances (including Cupid Shuffle and the Wobble) are always open.</div><div style="margin-top:12px"><button class="btn primary" id="d-unlock">See Pro</button></div></div>';
+      html += '<div class="card spotlight"><div class="eyebrow">ScootSteps Pro</div><div class="h2">Unlock the full catalog</div><div class="p">This one\'s part of Pro. Your free dances (including Cupid Shuffle and the Wobble) are always open.</div><div style="margin-top:12px"><button class="btn primary" id="d-unlock">See Pro</button></div></div>';
     } else {
       html += '<button class="btn primary" id="d-learn" style="margin-bottom:10px">🎓 Start learning</button>';
       html += '<div class="prow" style="display:flex;gap:10px;margin-bottom:10px">' +
@@ -355,7 +424,7 @@
 
   /* ---------------- PLAYER ---------------- */
   var eng = null, playerDance = null, playerMode = "watch";
-  var sectionIdx = 0, ghostOn = true, loopOn = true, watchLoop = true, chunkPlaying = false, sessionCompleted = false;
+  var sectionIdx = 0, ghostOn = true, loopOn = true, watchLoop = true, chunkPlaying = false, sessionCompleted = false, countsOn = true;
   function ensureEngine() {
     if (eng) return eng;
     eng = window.ScootEngine.create($("#p-canvas"), {
@@ -365,28 +434,53 @@
         $("#p-count").textContent = count;
         var t = instrText(ev); $("#p-instr").textContent = t.main || "…"; $("#p-instr2").textContent = t.sub || "";
         $("#p-phrase").textContent = phrase ? phrase.label.replace(/^Counts \d+.\d+:\s*/, "") : "";
-        $$("#p-ribbon .rc").forEach(function (el, i) { el.classList.toggle("active", i === (count - 1) % 8); });
+        var act = playerMode === "learn" && playerDance
+          ? SEC.activeCell(sectionIdx, playerDance.counts, count)
+          : (count - 1) % 8;
+        $$("#p-ribbon .rc").forEach(function (el, i) { el.classList.toggle("active", i === act); });
       },
       onWall: function (i, label) { $("#p-wall").textContent = label; },
       onCue: function (txt, show) { var c = $("#p-cue"); if (show) { c.textContent = txt; c.classList.add("show"); } else c.classList.remove("show"); },
       onComplete: function () {   // a bounded run finished (play-once / all-walls / section-once)
-        chunkPlaying = false; $("#p-play").textContent = "▶ Play"; $("#p-step-play").textContent = "▶ Play section";
+        chunkPlaying = false; syncTransportUI();
         if (eng && eng.loop === null) onDanceComplete();   // only celebrate when it was the WHOLE dance, not one section
       }
     });
     return eng;
   }
+  var SEC = window.SS_Sections;
   function buildRibbon() { var r = $("#p-ribbon"); r.innerHTML = ""; for (var i = 1; i <= 8; i++) { var d = document.createElement("div"); d.className = "rc b1"; d.textContent = i; r.appendChild(d); } }
-  function sectionCount() { return Math.ceil(playerDance.counts / 8); }
-  function sectionBounds() { if (sectionIdx === -1) return [1, playerDance.counts]; var s = sectionIdx * 8 + 1; return [s, Math.min(playerDance.counts, s + 7)]; }
+  function sectionBounds() { var b = SEC.boundsFor(sectionIdx, playerDance.counts); return [b.start, b.end]; }
+  // Paint the 8 cells with the REAL counts of the current selection. They used to be relabelled
+  // ((start-1+i)%8)+1, which prints "1..8" for every section — so drilling 17–24 looked identical
+  // to drilling 1–8 and the learner had no idea where they were in the dance.
+  function paintRibbon() {
+    var cells = SEC.ribbonFor(sectionIdx, playerDance.counts);
+    $$("#p-ribbon .rc").forEach(function (el, i) {
+      var c = cells[i];
+      el.textContent = c.label;
+      el.classList.toggle("insel", !!c.inSelection);
+      el.classList.toggle("empty", c.count === null);
+    });
+  }
   function buildSections() {
     var host = $("#p-sections"); if (!host) return; host.innerHTML = "";
-    var n = sectionCount();
-    for (var i = 0; i < n; i++) { var s = i * 8 + 1, e = Math.min(playerDance.counts, s + 7); host.insertAdjacentHTML("beforeend", '<button class="chip sec" data-sec="' + i + '">' + s + '–' + e + '</button>'); }
-    if (n > 1) host.insertAdjacentHTML("beforeend", '<button class="chip sec" data-sec="whole">Whole dance</button>');
-    $$("[data-sec]", host).forEach(function (b) { b.onclick = function () { selectSection(b.dataset.sec === "whole" ? -1 : +b.dataset.sec); }; });
+    var list = SEC.sectionsFor(playerDance.counts);
+    host.innerHTML = list.map(function (s) { return '<button class="chip sec" data-sec="' + s.idx + '">' + s.label + '</button>'; }).join("");
+    // The whole dance is NOT a chip in this strip any more — it lived at the end of a hidden
+    // horizontal scroller and was physically off-screen on a 375px phone. It gets its own row.
+    $("#p-whole").classList.toggle("hide", list.length < 2);
+    $(".seclabel").classList.toggle("hide", list.length < 2);
+    $$("[data-sec]", host).forEach(function (b) { b.onclick = function () { selectSection(+b.dataset.sec); }; });
   }
-  function markSection() { $$("#p-sections .sec").forEach(function (b) { b.classList.toggle("on", (b.dataset.sec === "whole" && sectionIdx === -1) || (+b.dataset.sec === sectionIdx)); }); }
+  function markSection() {
+    var whole = sectionIdx === SEC.WHOLE;
+    $$("#p-sections .sec").forEach(function (b) { b.classList.toggle("on", !whole && +b.dataset.sec === sectionIdx); });
+    var w = $("#p-whole");
+    w.classList.toggle("on", whole);
+    w.setAttribute("aria-pressed", whole ? "true" : "false");
+    w.textContent = (whole ? "✓ " : "🔁 ") + "Practise the WHOLE dance";
+  }
   function openPlayer(d, mode) {
     try { if (window.SS_Preview) window.SS_Preview.stopAll(); } catch (e) {}
     // the detail-screen hero loop keeps running behind the player otherwise — a second engine
@@ -398,52 +492,87 @@
     $("#p-credit").textContent = d.glossary ? (d.definition ? d.definition.slice(0, 60) + "…" : "") : d.choreographer_credit;
     $("#p-canvas").setAttribute("aria-label", "Top-down animation of two boots for " + d.name + ", " + d.counts + " counts, " + d.walls + " walls");
     buildRibbon();
-    ensureEngine(); eng.load(d);
+    ensureEngine(); eng.load(d); eng.setMute(!countsOn);
     var tr = window.Monetize.tempoRange(), tempo = $("#p-tempo");
     tempo.min = tr[0]; tempo.max = tr[1]; if (+tempo.value < tr[0]) tempo.value = tr[0]; if (+tempo.value > tr[1]) tempo.value = tr[1];
     $("#p-tempolock").classList.toggle("hide", !(window.Monetize.enabled() && !window.Monetize.hasPro()));
     setTempoUI(+tempo.value);
     if (d.glossary) { $("#p-mode-watch").parentNode.classList.add("hide"); playerMode = "watch"; } else { $("#p-mode-watch").parentNode.classList.remove("hide"); }
+    Music.setDance(d.id);
+    Music.load(d, syncTransportUI);    // warm the song element NOW so the Music tap plays in-gesture
     setPlayerMode(playerMode);
     // Watch/glossary: start immediately, in the SAME gesture that opened the player (iOS needs a gesture to start audio)
-    if (playerMode === "watch") { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.play(); $("#p-play").textContent = "❚❚ Pause"; }
+    if (playerMode === "watch") { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.play(); }
     // Learn: nothing auto-plays, but we still unlock audio HERE — inside the "Start learning" tap —
     // so the very first count tick (stepping or playing a section) is audible. Without this the
     // whole learn flow ran on a suspended context and made no sound at all.
     else { eng.ensureAudio(); }
+    syncTransportUI();
   }
-  function closePlayer() { if (eng) eng.pause(); $("#player").classList.remove("on"); }
+  function closePlayer() {
+    if (eng) eng.pause();
+    Music.stop();
+    chunkPlaying = false;
+    $("#player").classList.remove("on");
+    // the detail hero was paused when the player opened — bring it back, or the screen behind
+    // the player is left frozen mid-step
+    try { if (heroEngine && current === "detail") { heroEngine.setMute(true); heroEngine.play(); } } catch (e) {}
+  }
+  // ONE place that makes every transport button tell the truth about engine state. The buttons
+  // used to be set ad hoc at each call site, so switching modes mid-play left "▶ Play" showing
+  // over a running transport (and vice versa).
+  function syncTransportUI() {
+    var running = !!(eng && eng.playing);
+    $("#p-play").textContent = (playerMode === "watch" && running) ? "❚❚ Pause" : "▶ Play";
+    chunkPlaying = (playerMode === "learn") && running;
+    $("#p-step-play").textContent = chunkPlaying ? "❚❚ Pause"
+      : "▶ Play " + (sectionIdx === SEC.WHOLE ? "whole dance" : (playerDance ? SEC.labelFor(sectionIdx, playerDance.counts) : "section"));
+    $("#p-music").firstChild.textContent = Music.playing ? "❚❚" : "🎵";
+    $("#p-songname").textContent = Music.label || "Song";
+    $("#p-music").classList.toggle("on", Music.playing);
+    $("#p-music").disabled = !Music.ready;
+    $("#p-counts").textContent = "🥁 Counts" + (countsOn ? "" : ": Off");
+    $("#p-counts").classList.toggle("on", countsOn);
+    $("#p-musicbox").classList.toggle("hide", !Music.label);
+    $("#p-fullsong").disabled = !Music.fullLink;
+    $("#p-musichint").textContent = Music.ready
+      ? "Loops the 30-second preview · 🍎 opens the full song"
+      : "Finding the preview… · 🍎 opens the full song";
+  }
   function setPlayerMode(mode) {
     playerMode = mode;
+    if (eng) eng.pause();                       // never leave a transport running across a mode switch
     $("#p-mode-watch").classList.toggle("on", mode === "watch"); $("#p-mode-learn").classList.toggle("on", mode === "learn");
     $("#ctl-watch").classList.toggle("hide", mode !== "watch");
     $("#ctl-learn").classList.toggle("hide", mode !== "learn");
-    chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
+    chunkPlaying = false;
     if (mode === "learn") {
-      eng.pause(); eng.setStepMode(true); eng.setGhost(ghostOn);
+      eng.setStepMode(true); eng.setGhost(ghostOn);
       buildSections();
       $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off");
       $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost: " + (ghostOn ? "On" : "Off");
-      selectSection(sectionIdx); $("#p-play").textContent = "▶ Play";
+      selectSection(sectionIdx);
     } else {
       eng.setStepMode(false); eng.setLoop(null); eng.setStopAfter(watchLoop ? 0 : 1);
       $("#p-loop-watch").classList.toggle("on", watchLoop); $("#p-loop-watch").textContent = "🔁 Loop dance: " + (watchLoop ? "On" : "Off");
       $("#p-rotate").classList.remove("on");
+      // clear the drill highlight/relabelling so Watch doesn't inherit a section's ribbon
+      $$("#p-ribbon .rc").forEach(function (el, i) { el.textContent = i + 1; el.classList.remove("insel", "empty"); });
     }
+    syncTransportUI();
   }
   function setTempoUI(v) { $("#p-tempoval").textContent = v + "%"; $("#p-bpm").textContent = Math.round((playerDance.bpm || 96) * v / 100) + " BPM"; if (eng) eng.setTempo(v); }
   function selectSection(idx) {
-    sectionIdx = idx; chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
+    sectionIdx = idx; chunkPlaying = false;
     var b = sectionBounds();
     eng.setStepMode(true);
-    if (idx === -1) eng.setLoop(null); else eng.setLoop(b[0], b[1]);   // section -> bounded (wrap while drilling); whole -> null
+    if (idx === SEC.WHOLE) eng.setLoop(null); else eng.setLoop(b[0], b[1]);  // section -> bounded; whole -> the full dance
     eng.stepTo(b[0]);
-    markSection();
-    $$("#p-ribbon .rc").forEach(function (el, i) { el.classList.add("insel"); el.textContent = ((b[0] - 1 + i) % 8) + 1; });
+    markSection(); paintRibbon(); syncTransportUI();
   }
   function onDanceComplete() {
     if (sessionCompleted) return; sessionCompleted = true;
-    $("#p-play").textContent = "▶ Play";
+    syncTransportUI();
     bumpStreak(); celebrate();
     S.completions = (S.completions || 0) + 1;
     if (!S.mastery[playerDance.id] || S.mastery[playerDance.id] === "learning") toast("Nailed it. " + playerDance.name + " fears you now.");
@@ -463,28 +592,35 @@
   $("#p-close").onclick = closePlayer;
   $("#p-mode-watch").onclick = function () { setPlayerMode("watch"); };
   $("#p-mode-learn").onclick = function () { setPlayerMode("learn"); };
-  $("#p-play").onclick = function () { eng.ensureAudio(); if (!eng.playing) eng.setStopAfter(watchLoop ? 0 : 1); eng.toggle(); $("#p-play").textContent = eng.playing ? "❚❚ Pause" : "▶ Play"; };
-  $("#p-restart").onclick = function () { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.restart(); if (!eng.playing) eng.play(); $("#p-play").textContent = eng.playing ? "❚❚ Pause" : "▶ Play"; };
+  $("#p-play").onclick = function () { eng.ensureAudio(); if (!eng.playing) eng.setStopAfter(watchLoop ? 0 : 1); eng.toggle(); syncTransportUI(); };
+  $("#p-restart").onclick = function () { eng.ensureAudio(); eng.setStopAfter(watchLoop ? 0 : 1); eng.restart(); if (!eng.playing) eng.play(); syncTransportUI(); };
   $("#p-mirror").onclick = function () { eng.setMirror(!eng.mirror); $("#p-mirror").classList.toggle("on", eng.mirror); toast(eng.mirror ? "Mirror: facing you" : "Mirror: over the shoulder"); };
   $("#p-loop-watch").onclick = function () { watchLoop = !watchLoop; $("#p-loop-watch").classList.toggle("on", watchLoop); $("#p-loop-watch").textContent = "🔁 Loop dance: " + (watchLoop ? "On" : "Off"); eng.setStopAfter(watchLoop ? 0 : 1); if (watchLoop) $("#p-rotate").classList.remove("on"); };
-  $("#p-rotate").onclick = function () { eng.ensureAudio(); eng.setFullRotation(true); $("#p-rotate").classList.add("on"); watchLoop = false; $("#p-loop-watch").classList.remove("on"); $("#p-loop-watch").textContent = "🔁 Loop dance: Off"; eng.restart(); eng.play(); $("#p-play").textContent = "❚❚ Pause"; toast("Through all " + playerDance.walls + " walls, once"); };
+  $("#p-rotate").onclick = function () { eng.ensureAudio(); eng.setFullRotation(true); $("#p-rotate").classList.add("on"); watchLoop = false; $("#p-loop-watch").classList.remove("on"); $("#p-loop-watch").textContent = "🔁 Loop dance: Off"; eng.restart(); eng.play(); syncTransportUI(); toast("Through all " + playerDance.walls + " walls, once"); };
   $("#p-tempo").addEventListener("input", function () { setTempoUI(+this.value); });
-  $("#p-step-play").onclick = function () {          // Play/pause the selected section (loops per the Loop toggle)
+  $("#p-whole").onclick = function () {   // the whole dance, end to end — used to be an off-screen chip
+    selectSection(sectionIdx === SEC.WHOLE ? 0 : SEC.WHOLE);
+    toast(sectionIdx === SEC.WHOLE ? "Whole dance — all " + playerDance.counts + " counts" : "Drilling counts " + SEC.labelFor(sectionIdx, playerDance.counts));
+  };
+  $("#p-step-play").onclick = function () {          // Play/pause the selection (loops per the Loop toggle)
     if (!chunkPlaying) {
-      // ensureAudio() runs inside this tap so the count track is audible for the section drill —
+      // ensureAudio() runs inside this tap so the count track is audible for the drill —
       // this is the count track that carries the learner through the steps.
       eng.ensureAudio(); eng.setStepMode(false); eng.setStopAfter(loopOn ? 0 : 1); eng.play();
-      chunkPlaying = true; $("#p-step-play").textContent = "❚❚ Pause";
     } else {
       // pause where the learner actually is, so they can study the count they stopped on
       // (this used to snap back to the top of the section, losing their place)
       eng.pause(); eng.setStepMode(true);
-      chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section";
     }
+    syncTransportUI();
   };
-  $("#p-next").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section"; eng.setStepMode(true); eng.stepNext(); };
-  $("#p-prev").onclick = function () { chunkPlaying = false; $("#p-step-play").textContent = "▶ Play section"; eng.setStepMode(true); eng.stepPrev(); };
-  $("#p-loop").onclick = function () { loopOn = !loopOn; $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off"); };
+  $("#p-next").onclick = function () { eng.setStepMode(true); eng.stepNext(); syncTransportUI(); };
+  $("#p-prev").onclick = function () { eng.setStepMode(true); eng.stepPrev(); syncTransportUI(); };
+  $("#p-loop").onclick = function () { loopOn = !loopOn; $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off"); if (eng.playing) eng.setStopAfter(loopOn ? 0 : 1); };
+  // ---- music controls (both modes) ----
+  $("#p-music").onclick = function () { Music.toggle(); syncTransportUI(); };   // synchronous — inside the tap
+  $("#p-counts").onclick = function () { countsOn = !countsOn; if (eng) eng.setMute(!countsOn); syncTransportUI(); };
+  $("#p-fullsong").onclick = function () { if (Music.fullLink) openExternal(Music.fullLink); };
   $("#p-ghost").onclick = function () { ghostOn = !ghostOn; $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost: " + (ghostOn ? "On" : "Off"); eng.setGhost(ghostOn); };
 
   /* ---------------- ONBOARDING (Panic Mode) ---------------- */
@@ -531,10 +667,10 @@
   /* ---------------- PAYWALL ---------------- */
   function openPaywall() {
     var o = $("#paywall"), M = window.Monetize;
-    var feats = [['Full catalog', 'All 40+ dances, not just the free 5'], ['Offline downloads', 'Works with no signal — the bar has none'], ['Section looping', 'Drill counts 17–24 till it sticks'], ['Every learn path', 'Panic-mode plans and packs'], ['Cheat-sheet export', 'A printable step sheet for your pocket']];
+    var feats = [['Full catalog', 'Every dance in the catalog, not just the free 5'], ['Offline downloads', 'Works with no signal — the bar has none'], ['Section looping', 'Drill counts 17–24 till it sticks'], ['Every learn path', 'Panic-mode plans and packs'], ['Cheat-sheet export', 'A printable step sheet for your pocket']];
     var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="eyebrow">ScootSteps Pro</div><button class="btn ghost sm" id="pw-close">✕</button></div>';
     html += '<div class="vtitle" style="margin-bottom:6px">Never sit one out again</div>';
-    html += '<div class="vsub" style="margin-bottom:18px">Your 5 free dances stay free forever. Pro opens the rest.</div>';
+    html += '<div class="vsub" style="margin-bottom:18px">Your free dances stay free forever. Pro opens the rest.</div>';
     html += feats.map(function (f) { return '<div class="paywall-feat"><span class="k">✓</span><span><b>' + f[0] + '</b><span>' + f[1] + '</span></span></div>'; }).join('');
     if (M.enabled()) {
       html += '<div style="margin-top:8px">' +
@@ -582,7 +718,7 @@
     html += '<div class="eyebrow" style="margin:16px 0 8px">Comfort</div>';
     html += '<div class="card"><b style="font-weight:800">Text size</b><div class="p" style="margin:2px 0 6px">Bigger type across the whole app.</div><input type="range" id="set-text" min="0.9" max="1.35" step="0.05" value="' + (s.textScale || 1) + '" aria-label="Text size"></div>';
     html += '<div class="eyebrow" style="margin:16px 0 8px">ScootSteps Pro</div>';
-    html += '<div class="card"><b style="font-weight:800">Membership</b><div class="p">' + (window.Monetize.hasPro() ? 'Pro is active. Thank you!' : 'Free — 5 dances, all basics, and (right now) everything else too.') + '</div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn sm" id="set-pro">See Pro</button><button class="btn sm ghost" id="set-restore">Restore</button></div></div>';
+    html += '<div class="card"><b style="font-weight:800">Membership</b><div class="p">' + (window.Monetize.hasPro() ? 'Pro is active. Thank you!' : 'Free — the starter dances, all basics, and (right now) everything else too.') + '</div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn sm" id="set-pro">See Pro</button><button class="btn sm ghost" id="set-restore">Restore</button></div></div>';
     html += '<div class="eyebrow" style="margin:16px 0 8px">About</div>';
     html += '<div class="card"><b style="font-weight:800">More from Jonathan</b><div class="p" style="margin:2px 0 9px">Art, stories, and what\'s next.</div><button class="btn sm" id="set-web">Visit jonathanscribbles.com ↗</button></div>';
     html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps · learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';

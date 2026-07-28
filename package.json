@@ -2,13 +2,13 @@
   "name": "scootsteps",
   "version": "1.0.0",
   "private": true,
-  "description": "ScootSteps — learn to line dance with animated top-down footwork diagrams.",
+  "description": "ScootSteps \u2014 learn to line dance with animated top-down footwork diagrams.",
   "author": "Jonathan Biles <jonathanbbiles@gmail.com>",
   "scripts": {
     "sync": "cap sync ios",
     "add:ios": "cap add ios",
-    "test": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node itunes-match-test.mjs",
-    "test:offline": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node itunes-match-test.mjs --offline"
+    "test": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node count-track-test.mjs && node sections-test.mjs && node itunes-match-test.mjs",
+    "test:offline": "node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node count-track-test.mjs && node sections-test.mjs && node itunes-match-test.mjs --offline"
   },
   "dependencies": {
     "@capacitor-community/in-app-review": "8.0.0",

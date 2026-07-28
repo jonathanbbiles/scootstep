@@ -109,7 +109,7 @@ button{font-family:inherit;cursor:pointer}
 .p-top .nm{flex:1;min-width:0}
 .p-top .nm b{font-size:calc(16px*var(--textScale));font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .p-top .nm small{color:var(--muted);font-size:11.5px;font-weight:700}
-.stage{position:relative;width:100%;flex:0 0 auto;aspect-ratio:1/1;max-height:46vh;border-radius:20px;overflow:hidden;background:#3a2a1c;box-shadow:0 16px 36px -18px #000, inset 0 0 0 1px var(--line);margin:0 auto}
+.stage{position:relative;width:100%;flex:0 0 auto;aspect-ratio:1/1;max-height:38vh;border-radius:20px;overflow:hidden;background:#3a2a1c;box-shadow:0 16px 36px -18px #000, inset 0 0 0 1px var(--line);margin:0 auto}
 .stage canvas{display:block;width:100%;height:100%}
 .compass{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:rgba(13,24,38,.55);backdrop-filter:blur(6px);border:1px solid var(--line-2);font-size:11px;font-weight:800}
 .compass .dot{width:8px;height:8px;border-radius:2px;background:var(--amber)}
@@ -121,12 +121,28 @@ button{font-family:inherit;cursor:pointer}
 .instr .t b{font-size:calc(15px*var(--textScale))}
 .instr .t span{display:block;color:var(--muted);font-size:12px;font-weight:600;margin-top:1px}
 .ribbon{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:10px}
-.rc{aspect-ratio:1/1;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:calc(13px*var(--textScale));font-weight:800;color:var(--muted);background:rgba(250,245,236,.06);border:1px solid transparent}
+.rc{aspect-ratio:1/1;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:calc(12px*var(--textScale));font-weight:800;color:var(--muted);background:rgba(250,245,236,.06);border:1px solid transparent}
 .rc.b1{color:var(--cream)}.rc.touch{opacity:.7}
 .rc.active{background:var(--amber);color:#3a1e07;border-color:var(--amber-bright);transform:scale(1.05)}
 .rc.insel{background:rgba(217,123,41,.22)}
-#p-sections .sec{padding:10px 13px;font-size:calc(13.5px*var(--textScale));flex:0 0 auto}
-.pcontrols{margin-top:auto;display:flex;flex-direction:column;gap:9px}
+.rc.empty{opacity:.25}
+/* The drill strip WRAPS. It used to be a no-wrap scroller with the scrollbar hidden, which put
+   the last option ~56px off the right edge of a 375px phone — unreachable, so the dance could
+   only ever be drilled 8 counts at a time. */
+#p-sections{display:flex;flex-wrap:wrap;gap:6px;overflow:visible}
+#p-sections .sec{padding:10px 12px;font-size:calc(13.5px*var(--textScale));flex:1 1 auto;min-width:66px;text-align:center}
+.seclabel{font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.wholebtn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line-2);background:rgba(250,245,236,.07);color:var(--cream);font-weight:800;font-size:calc(14px*var(--textScale));padding:12px;border-radius:12px;margin-bottom:10px}
+.wholebtn.on{background:var(--amber);border-color:var(--amber-bright);color:#3a1e07}
+/* the control stack can outgrow a small phone once sections wrap — let it scroll rather than
+   pushing the play buttons off the bottom of the screen */
+.pcontrols{margin-top:auto;display:flex;flex-direction:column;gap:9px;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.musicrow{display:flex;gap:7px;align-items:center;margin-bottom:9px}
+.musicrow .pbtn{padding:11px 6px;font-size:calc(13px*var(--textScale));min-width:0}
+.musicrow .pbtn b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
+#p-music{flex:1.9}
+#p-music.on{background:rgba(43,179,163,.2);border-color:var(--teal);color:#8fe6da}
+.musichint{font-size:10.5px;color:var(--faint);font-weight:700;text-align:center;margin:-4px 0 8px}
 .prow{display:flex;gap:8px}
 .pbtn{flex:1;border:1px solid var(--line-2);background:rgba(250,245,236,.07);color:var(--cream);font-weight:800;font-size:calc(14px*var(--textScale));padding:13px 8px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:6px}
 .pbtn:active{transform:scale(.97)}
@@ -140,6 +156,22 @@ input[type=range]{width:100%;margin-top:7px;accent-color:var(--amber);height:26p
 .seg{display:flex;background:var(--denim-3);border:1px solid var(--line);border-radius:11px;padding:3px;gap:3px}
 .seg button{flex:1;border:0;background:none;color:var(--muted);font-weight:800;font-size:calc(13px*var(--textScale));padding:8px;border-radius:8px}
 .seg button.on{background:var(--amber);color:#3a1e07}
+
+/* Short screens (iPhone SE and friends): tighten the stage and the chrome around it so the
+   PRIMARY action — the play button and the section picker — never falls below the fold. */
+@media (max-height: 720px){
+  .stage{max-height:27vh}
+  .instr{padding:7px 11px;margin:7px 0}
+  .cchip{width:38px;height:38px;font-size:calc(18px*var(--textScale))}
+  .ribbon{gap:4px;margin-bottom:7px}
+  .rc{border-radius:7px}
+  .wholebtn{padding:10px;margin-bottom:8px}
+  .seclabel{margin-bottom:4px}
+  .musicrow{margin-bottom:7px}
+  .musichint{margin:-4px 0 6px}
+  #p-sections .sec{padding:9px 10px}
+  .pbtn{padding:11px 8px}
+}
 
 /* ---- tab bar ---- */
 .tabbar{position:fixed;left:0;right:0;bottom:0;height:calc(var(--tabh) + var(--safe-b));padding-bottom:var(--safe-b);background:rgba(15,29,48,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;z-index:40}
@@ -182,7 +214,7 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
   <section id="view-home" class="view" aria-label="Tonight"></section>
   <!-- LIBRARY -->
   <section id="view-library" class="view" aria-label="Library">
-    <div class="vhead"><div><div class="vtitle">Library</div><div class="vsub" id="lib-count">40 dances and counting</div></div></div>
+    <div class="vhead"><div><div class="vtitle">Library</div><div class="vsub" id="lib-count">Every dance really plays</div></div></div>
     <div class="search"><span aria-hidden="true">🔎</span><input id="lib-search" type="search" placeholder="Search a dance — try “cupid” or “wobble”" aria-label="Search dances" autocomplete="off" autocorrect="off" /></div>
     <div class="filters" id="lib-filters"></div>
     <div class="grid" id="lib-grid"></div>
@@ -218,6 +250,15 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
   <div class="instr" aria-live="polite"><div class="cchip" id="p-count" aria-label="Current count">1</div><div class="t"><b id="p-instr">Ready</b><span id="p-instr2">Press play — the count track keeps you on beat</span></div></div>
   <div class="ribbon" id="p-ribbon"></div>
   <div class="pcontrols" id="p-controls">
+    <!-- SONG (both modes) — kept at the top of the stack so it is never below the fold -->
+    <div id="p-musicbox">
+      <div class="musicrow">
+        <button class="pbtn" id="p-music" aria-label="Play the song"><span>🎵</span><b id="p-songname">Song</b></button>
+        <button class="pbtn on" id="p-counts">🥁 Counts</button>
+        <button class="pbtn" id="p-fullsong" aria-label="Open the full song">🍎</button>
+      </div>
+      <div class="musichint" id="p-musichint">Loops the 30-second preview · 🍎 opens the full song</div>
+    </div>
     <!-- WATCH: the whole dance -->
     <div id="ctl-watch">
       <div class="prow">
@@ -230,9 +271,11 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
         <button class="pbtn" id="p-rotate" aria-label="Play through all walls once">🧭 All walls</button>
       </div>
     </div>
-    <!-- LEARN / DRILL: pick a section -->
+    <!-- LEARN / DRILL: pick what to practise -->
     <div id="ctl-learn" class="hide">
-      <div id="p-sections" class="filters" style="margin-bottom:10px" role="group" aria-label="Pick a section to drill"></div>
+      <button class="wholebtn" id="p-whole" aria-pressed="false">🔁 Practise the WHOLE dance</button>
+      <div class="seclabel">…or drill one 8-count</div>
+      <div id="p-sections" style="margin-bottom:10px" role="group" aria-label="Pick a section to drill"></div>
       <div class="prow" style="margin-bottom:9px">
         <button class="pbtn" id="p-prev" aria-label="Previous count">‹ Step</button>
         <button class="pbtn primary" id="p-step-play">▶ Play section</button>
@@ -272,6 +315,7 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
 <script src="js/data.dances.js"></script>
 <script src="js/data.glossary.js"></script>
 <script src="js/iap.js"></script>
+<script src="js/sections.js"></script>
 <script src="js/itunes-match.js"></script>
 <script src="js/app.js"></script>
 </body>

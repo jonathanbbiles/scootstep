@@ -27,9 +27,12 @@ www/
   js/engine.js          the Step Engine (reusable renderer + transport)
   js/data.dances.js     the 10-dance catalog (authoring DSL -> §8 schema)
   js/data.glossary.js   10 foundation-step mini-dances
+  js/sections.js        Learn-mode section model (8-count blocks / whole dance / ribbon)
+  js/itunes-match.js    picks the right recording out of an iTunes Search result set
   js/iap.js             Pro gating + StoreKit (CdvPurchase) — flip-to-config
   js/app.js             router, screens, player wiring, Learn Paths, state
-appicon-1024.png        app icon master (boot-chevron up-arrow; embedded on build)
+appicon-1024.png        app icon master — cowboy boot (rendered from tools/appicon.svg)
+tools/appicon.svg       the icon source; re-render with headless Chrome --screenshot
 capacitor.config.json   appId com.jonathanbiles.scootstep, appName "ScootSteps"
 codemagic.yaml          iOS → TestFlight (Capacitor 8 / SPM); portrait + iPhone-only
 ```
@@ -94,6 +97,44 @@ Code is done and pushed. To ship to TestFlight (PLAYBOOK §5–6):
 > **Missing:** `smoke-test.mjs`, `render-catalog.mjs` and `gen-icon.mjs` were documented here but
 > are not in the repo — they have never been committed. The jsdom smoke test in particular is
 > worth restoring; there is no dependency on jsdom in `package.json` today.
+
+## The count track (why it is scheduled, not fired)
+
+The VISUAL transport runs on `performance.now()`, so the animation never freezes even when iOS
+keeps the audio context suspended. The COUNT TRACK does **not** run off the frame loop. Ticks are
+queued ahead on the AUDIO clock from an anchor that maps beat → audio time (`schedule()` in
+`engine.js`), driven by both rAF and a 40 ms timer so a stalled frame loop cannot starve it.
+
+Three things this fixes, all reported from TestFlight as "weird clicking sounds":
+
+* **Envelope clicks.** Ticks used to be scheduled at `currentTime + 0.0005` — inside the render
+  quantum already being computed — so the attack ramp began in the past and the first rendered
+  sample jumped to a non-zero gain. Every tick now opens from true zero and ramps back to true
+  zero *before* `stop()`, so nothing is ever truncated mid-waveform.
+* **Pile-ups.** A suspended context has a frozen `currentTime`. The old code registered a fresh
+  `resume().then(fire)` for every dropped tick, so when the resume landed they all fired on the
+  same instant. A suspended context now queues nothing and re-asks at most once every 400 ms.
+* **Jitter and holes.** Firing on the frame that noticed the count flip inherited a frame of
+  jitter plus every main-thread stall. The lookahead widens automatically when passes get ragged,
+  and genuinely-late ticks are dropped rather than played behind the beat.
+
+`count-track-test.mjs` pins all of it against a fake AudioContext with a controllable clock.
+
+## Learn mode: sections and the whole dance
+
+Section selection lives in `js/sections.js` so it is testable headlessly (`sections-test.mjs`).
+The drill strip **wraps**; "the whole dance" is its own always-visible row, not a chip. It used to
+be the last chip in a no-wrap flex strip with the scrollbar hidden — at 375 px that put it 56 px
+off the right edge with no affordance, so the dance could only ever be drilled 8 counts at a time.
+The 8 ribbon cells show the section's REAL counts (17–24, not 1–8 relabelled).
+
+## Music in the player
+
+The count track is a synth metronome and is tempo-variable (40–120%); a record is not, so the two
+can never be locked together. The player therefore carries the song as a **separate layer**: the
+30-second Apple preview on loop, with a deep link to the full track, and a Counts toggle if you
+want the song alone. The preview URL is resolved and the element buffered when the player *opens*,
+so the Music tap only has to call `play()` — synchronously, inside the gesture, as iOS requires.
 
 ## Choreography sourcing
 

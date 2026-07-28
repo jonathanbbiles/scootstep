@@ -117,9 +117,28 @@
       trails: { L: [], R: [] }, rotationsDone: 0, lastCount: -1
     };
 
-    // ONE shared AudioContext for the whole app; the VISUAL transport runs on performance.now()
+    // ================= COUNT TRACK =================
+    // ONE shared AudioContext for the whole app. The VISUAL transport runs on performance.now()
     // so the animation never freezes even if iOS keeps the audio context suspended.
+    //
+    // The COUNT TRACK, though, is scheduled AHEAD on the AUDIO clock from an anchor that maps
+    // beat -> audio time. Firing a tick the instant a frame noticed the count had flipped (the
+    // old behaviour) handed the metronome a full frame of jitter plus every main-thread stall
+    // from canvas drawing and GC — which is exactly what made it sound clicky and uneven, and
+    // why ticks vanished whenever the webview dropped frames.
     let audio = null;
+    const LOOKAHEAD_S = 0.18;      // keep the audio queue filled at least this far ahead
+    const MAX_LOOKAHEAD_S = 1.0;   // ...but never hoard more than a second of ticks
+    const SCHED_MS = 40;           // top the queue up this often, independently of rAF
+    const MAX_PER_PASS = 8;        // backlog guard: never dump a pile of overdue ticks at once
+    const MAX_BEHIND = 2;          // beats: further behind than this and we skip forward, not grind
+    const ANCHOR_PAD = 0.02;       // audio sits 20 ms behind video — imperceptible, and it
+                                   // guarantees the downbeat is never scheduled into the past
+    const MAX_DRIFT = 0.05;        // re-anchor once the two clocks disagree by this much
+    let anchorBeat = 0, anchorAudio = 0, anchored = false, nextTick = 0;
+    let live = [];                 // scheduled-but-unfinished oscillators, so pause() can kill them
+    let resumeAsked = 0, lastPass = -1, passGap = 0;
+
     const perfNow = () => (global.performance && global.performance.now) ? global.performance.now() : Date.now();
     function ensureAudio() {
       if (!global.__ssAudioCtx) { try { global.__ssAudioCtx = new (global.AudioContext || global.webkitAudioContext)(); } catch (e) {} }
@@ -127,38 +146,110 @@
       if (audio && audio.state === "suspended") { try { audio.resume(); } catch (e) {} }   // must be inside a user gesture on iOS
       return audio;
     }
-    // clean metronome tick — a soft sine with a quick pitch drop, enveloped from silence (no harsh
-    // square-wave "clicks").
+    function beatDurSec() { return 60 / bpmEff(); }
+
+    // Pin "beat B happens at audio time T". Every transport change re-pins, so a tempo slide or a
+    // section change never leaves stale ticks queued against the old mapping.
+    function reanchor() {
+      const a = audio; if (!a) { anchored = false; return; }
+      anchorBeat = st.playing ? currentBeat() : st.startBeat;
+      anchorAudio = a.currentTime + ANCHOR_PAD;
+      nextTick = Math.ceil(anchorBeat - 1e-6);
+      anchored = true; lastPass = -1;
+    }
+    function stopScheduled() {                       // silence anything queued but not yet heard
+      for (let i = 0; i < live.length; i++) { try { live[i].stop(0); } catch (e) {} }
+      live.length = 0; anchored = false;
+    }
+
+    // The lookahead pass. Called from the frame loop AND from a timer, so a stalled or throttled
+    // rAF can't starve the count track.
+    function schedule() {
+      if (!st.playing || st.stepMode || st.muteCounts || !st.TL) return;
+      const a = audio || global.__ssAudioCtx; if (!a) return;
+      if (a.state !== "running") {                   // suspended: ask ONCE, queue nothing.
+        const now = perfNow();                       // (the old code registered a resume callback
+        if (now - resumeAsked > 400) {               // per dropped tick, so when the resume finally
+          resumeAsked = now; anchored = false;       // landed they all fired at the same instant —
+          try { a.resume(); } catch (e) {}           // a pile-up that read as a loud clack.
+        }
+        return;
+      }
+      if (!anchored) reanchor();
+      // drift between the perf-clock transport and the audio clock
+      const expected = anchorAudio + (currentBeat() - anchorBeat) * beatDurSec();
+      if (Math.abs(expected - (a.currentTime + ANCHOR_PAD)) > MAX_DRIFT) reanchor();
+
+      const dur = beatDurSec();
+      // How far ahead to queue. A fixed 180 ms is fine at 60 fps, but the webview throttles both
+      // rAF and timers hard under load — and a tick that falls into the gap BETWEEN two passes is
+      // gone, which is a hole in the metronome. So the horizon tracks how ragged the passes
+      // actually are, and stays wide enough to cover the next one.
+      if (lastPass >= 0) { const g = a.currentTime - lastPass; if (g > 0) passGap = Math.max(g, passGap * 0.85); }
+      lastPass = a.currentTime;
+      const horizon = a.currentTime + clamp(passGap * 2.5, LOOKAHEAD_S, MAX_LOOKAHEAD_S);
+
+      // If we fell a long way behind (backgrounded, then resumed), skip to the present rather than
+      // grinding through hundreds of stale beats a handful at a time.
+      const nowBeat = currentBeat();
+      if (nextTick < nowBeat - MAX_BEHIND) nextTick = Math.ceil(nowBeat - 1e-6);
+
+      let n = 0;
+      while (n++ < MAX_PER_PASS) {
+        const t = anchorAudio + (nextTick - anchorBeat) * dur;
+        if (t > horizon) break;
+        if (t > a.currentTime + 0.004) {             // stale ticks are DROPPED, never played late
+          const bw = wrapBeat(nextTick);
+          const count = (Math.floor(bw + 1e-6) % st.TL.counts) + 1;
+          fireAt(a, t, ((count - 1) % 8) === 0);
+        }
+        nextTick++;
+      }
+    }
+
+    // A single discrete tick, for Learn-mode stepping (which has no running transport).
     //
-    // ctx.resume() is ASYNC. The old code bailed whenever state !== "running", so the FIRST tick
-    // after any suspension (every Learn-mode step, since stepTo() resumes and beeps on the next
-    // line) was silently dropped — that's why learning the dance had no count track. Now a
-    // suspended context is resumed and the tick fires on the other side, as long as it's still
-    // timely (a stale tick arriving late would sound worse than none).
+    // ctx.resume() is ASYNC. The original code bailed whenever state !== "running", and stepTo()
+    // resumes then beeps on the very next line — so every Learn-mode tick landed on a still-
+    // suspended context and was silently dropped. A suspended context is resumed here and the
+    // tick fires on the other side, as long as it is still timely.
     function beep(accent) {
       if (st.muteCounts) return;
       const a = audio || ensureAudio();
       if (!a) return;
-      if (a.state === "running") return fire(a, accent);
+      if (a.state === "running") return fireAt(a, a.currentTime + ANCHOR_PAD, accent);
       const asked = perfNow();
       try {
         const p = a.resume();
-        if (p && p.then) p.then(function () { if (a.state === "running" && perfNow() - asked < 250) fire(a, accent); }, function () {});
-        else if (a.state === "running") fire(a, accent);
+        if (p && p.then) p.then(function () {
+          if (a.state === "running" && perfNow() - asked < 250) fireAt(a, a.currentTime + ANCHOR_PAD, accent);
+        }, function () {});
+        else if (a.state === "running") fireAt(a, a.currentTime + ANCHOR_PAD, accent);
       } catch (e) {}
     }
-    function fire(audio, accent) {
+
+    // A clean tick: a soft sine with a quick pitch drop, opened from TRUE silence and closed back
+    // to TRUE silence before the node stops. The old envelope started at 0.0001 half a millisecond
+    // in the future — i.e. inside the current render quantum, so the attack ramp had already begun
+    // in the past and the first rendered sample jumped to a non-zero value. That step discontinuity
+    // is the click. It also stopped the oscillator while the gain was still audible-adjacent,
+    // truncating the waveform mid-cycle for a second, quieter click.
+    function fireAt(a, t, accent) {
       const style = (opts.getSettings && opts.getSettings().countStyle) || "click";
-      const t = audio.currentTime + 0.0005;
-      const o = audio.createOscillator(), g = audio.createGain();
+      const o = a.createOscillator(), g = a.createGain();
       o.type = style === "woodblock" ? "triangle" : "sine";
-      o.frequency.setValueAtTime(accent ? 1400 : 950, t);
-      o.frequency.exponentialRampToValueAtTime(accent ? 900 : 620, t + 0.045);
-      const vol = accent ? 0.22 : 0.13;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(vol, t + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0008, t + (accent ? 0.12 : 0.07));
-      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.16);
+      o.frequency.setValueAtTime(accent ? 1320 : 880, t);
+      o.frequency.exponentialRampToValueAtTime(accent ? 880 : 620, t + 0.04);
+      const vol = accent ? 0.20 : 0.12, dur = accent ? 0.11 : 0.07;
+      g.gain.setValueAtTime(0, t);                              // open from real zero
+      g.gain.linearRampToValueAtTime(vol, t + 0.006);           // 6 ms attack, no discontinuity
+      g.gain.exponentialRampToValueAtTime(0.0005, t + dur);     // natural decay
+      g.gain.linearRampToValueAtTime(0, t + dur + 0.02);        // ...back to real zero BEFORE stop()
+      o.connect(g).connect(a.destination);
+      o.start(t); o.stop(t + dur + 0.03);
+      live.push(o);
+      o.onended = function () { const i = live.indexOf(o); if (i >= 0) live.splice(i, 1); };
+      if (live.length > 32) live.splice(0, live.length - 32);   // paranoia: never grow unbounded
     }
     function haptic(accent) {
       const s = opts.getSettings && opts.getSettings();
@@ -185,15 +276,28 @@
       if (st.stepMode) setStepMode(false);
       st.playing = true; st.lapFired = false;
       st.startBeat = wrapBeat(st.startBeat); st.startPerf = perfNow(); st.lastClickCount = -1;
+      stopScheduled(); schedule();         // fresh queue from a fresh anchor
       emit("play");
     }
-    function pause() { if (!st.playing) return; st.startBeat = currentBeat(); st.playing = false; emit("pause"); }
+    function pause() {
+      if (!st.playing) return;
+      st.startBeat = currentBeat(); st.playing = false;
+      stopScheduled();                     // otherwise up to 180 ms of already-queued ticks keep
+      emit("pause");                       // firing after the user hit pause
+    }
     function toggle() { st.playing ? pause() : play(); }
-    function restart() { const { lo } = loopSpan(); st.startBeat = lo; st.startPerf = perfNow(); st.lapFired = false; st.lastClickCount = -1; if (st.stepMode) stepTo(lo + 1); }
+    function restart() {
+      const { lo } = loopSpan();
+      st.startBeat = lo; st.startPerf = perfNow(); st.lapFired = false; st.lastClickCount = -1;
+      stopScheduled();
+      if (st.stepMode) stepTo(lo + 1); else if (st.playing) schedule();
+    }
     function setTempo(pct) {
       pct = clamp(pct, 40, 120);
       const now = st.playing ? currentBeat() : st.startBeat;
       st.tempoPct = pct; st.startBeat = now; st.startPerf = perfNow();
+      stopScheduled();                     // queued ticks belong to the OLD tempo — drop them
+      if (st.playing) schedule();
       emit("tempo", pct);
     }
     function setMirror(m) { st.mirror = !!m; emit("mirror", st.mirror); }
@@ -203,16 +307,21 @@
     function setStopAfter(reps) { st.stopAfter = reps | 0; }                          // 0 = loop forever
     function setFullRotation(v) { st.stopAfter = v ? ((st.dance && st.dance.walls) || 1) : 0; }
     function setLoop(startCount, endCount) {
+      // capture where the transport ACTUALLY is first — while playing, st.startBeat is only the
+      // anchor from the last transport change, so wrapping it jumped the dance backwards whenever
+      // the learner switched sections mid-play.
+      const now = st.playing ? currentBeat() : st.startBeat;
       st.loop = (startCount && endCount) ? { start: startCount, end: endCount } : null;
-      st.startBeat = wrapBeat(st.startBeat);
-      if (st.playing) { st.startPerf = perfNow(); st.lastClickCount = -1; }
+      st.startBeat = wrapBeat(now);
+      stopScheduled();
+      if (st.playing) { st.startPerf = perfNow(); st.lastClickCount = -1; schedule(); }
       emit("loop", st.loop);
     }
 
     // ---------- step mode ----------
     function setStepMode(on) {
       st.stepMode = !!on;
-      if (on) { if (st.playing) pause(); st.stepBeat = Math.round(wrapBeat(st.startBeat)); st.stepAnimating = false; }
+      if (on) { if (st.playing) pause(); stopScheduled(); st.stepBeat = Math.round(wrapBeat(st.startBeat)); st.stepAnimating = false; }
       emit("stepmode", st.stepMode);
     }
     function stepTo(count) {
@@ -345,10 +454,13 @@
         const wall = ((Math.round(facingAt(st.TL, Bw) / 90) % 4) + 4) % 4;
         if (opts.onWall) opts.onWall(wall, WALL_LABELS[wall]);
       }
-      // metronome tick — locked to the on-screen count, only while genuinely playing (and not a muted hero loop)
+      // COUNT TRACK: audio is queued ahead on the audio clock (see schedule()), not fired from
+      // here — the frame loop only drives haptics, which can't be scheduled in advance anyway and
+      // where a frame of jitter is imperceptible.
+      schedule();
       if (st.playing && !st.stepMode && !st.muteCounts && count !== st.lastClickCount) {
         st.lastClickCount = count;
-        const accent = ((count - 1) % 8) === 0; beep(accent); haptic(accent);
+        haptic(((count - 1) % 8) === 0);
       }
       if (opts.onCue && st.cues) {
         const ev = st.TL.perCount[count];
@@ -363,19 +475,26 @@
       st.startBeat = 0; st.startPerf = perfNow(); st.stepBeat = 0; st.lastCount = -1; st.lastClickCount = -1;
       st.loop = null; st.stopAfter = 0; st.playing = false; st.stepMode = false;
       st.trails.L.length = 0; st.trails.R.length = 0;
+      stopScheduled();
       return api;
     }
 
     resize(); global.addEventListener("resize", resize);
     fpsT = (global.performance || Date).now(); raf = requestAnimationFrame(frame);
+    // Second driver for the count track. rAF is throttled or stopped outright whenever the webview
+    // isn't compositing, and a stalled frame loop must not be allowed to starve the metronome.
+    let schedTimer = setInterval(schedule, SCHED_MS);
+    if (schedTimer && schedTimer.unref) schedTimer.unref();
 
     const api = {
       load, play, pause, toggle, restart, setTempo, setMirror, setCues, setGhost, setMute, setFullRotation, setStopAfter, setLoop,
       setStepMode, stepTo, stepNext, stepPrev, resize, ensureAudio,
+      pumpAudio: schedule,        // run one lookahead pass on demand (headless tests; also safe to
+                                  // call on visibilitychange if the queue ever needs a manual kick)
       get playing() { return st.playing; }, get stepMode() { return st.stepMode; },
       get mirror() { return st.mirror; }, get tempoPct() { return st.tempoPct; }, get loop() { return st.loop; },
       get dance() { return st.dance; }, get fps() { return fps; },
-      destroy() { cancelAnimationFrame(raf); global.removeEventListener("resize", resize); st.playing = false; }
+      destroy() { cancelAnimationFrame(raf); clearInterval(schedTimer); global.removeEventListener("resize", resize); st.playing = false; stopScheduled(); }
     };
     return api;
   }
