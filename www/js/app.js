@@ -758,23 +758,35 @@
     var url = cv.toDataURL("image/png");
     showCheatModal(d, url);
   }
+  // A data: URL on an <a download> does nothing in the Capacitor WKWebView — the download
+  // attribute is not honoured there, so that button was decoration. The two paths that DO work on
+  // device are the share sheet (which offers "Save Image") and a long-press on the image itself,
+  // so those are the two the UI offers, and the long-press is stated rather than left to be guessed.
+  function dataUrlToFile(url, name) {                     // synchronous on purpose: navigator.share
+    var comma = url.indexOf(",");                         // must be called inside the tap's user
+    var bin = atob(url.slice(comma + 1));                 // gesture, and an await would spend it
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new File([bytes], name, { type: "image/png" });
+  }
   function showCheatModal(d, url) {
     var o = document.createElement("div"); o.className = "overlay on"; o.style.zIndex = 90;
     o.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="eyebrow">Cheat sheet</div><button class="btn ghost sm" id="cs-x">✕</button></div>' +
-      '<div class="p" style="margin-bottom:12px">Your pocket step sheet for <b>' + esc(d.name) + '</b>. Save it or share it.</div>' +
+      '<div class="p" style="margin-bottom:12px">Your pocket step sheet for <b>' + esc(d.name) + '</b>.</div>' +
       '<img src="' + url + '" style="width:100%;border-radius:12px;border:1px solid var(--line-2)"/>' +
-      '<a class="btn primary" style="margin-top:14px" href="' + url + '" download="scootsteps-' + d.id + '.png">⬇ Save image</a>' +
-      '<button class="btn ghost" id="cs-share" style="margin-top:8px">⤴️ Share</button>';
+      '<button class="btn primary" id="cs-share" style="margin-top:14px">⤴️ Save or share</button>' +
+      '<div class="p" style="margin-top:8px;text-align:center">Or long-press the image to save it to Photos.</div>';
     document.body.appendChild(o);
     $("#cs-x", o).onclick = function () { o.remove(); };
     $("#cs-share", o).onclick = function () {
-      try {
-        fetch(url).then(function (r) { return r.blob(); }).then(function (b) {
-          var file = new File([b], "scootsteps-" + d.id + ".png", { type: "image/png" });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: d.name + " — ScootSteps" });
-          else toast("Long-press the image to save it.");
-        });
-      } catch (e) { toast("Long-press the image to save it."); }
+      var file;
+      try { file = dataUrlToFile(url, "scootsteps-" + d.id + ".png"); }
+      catch (e) { toast("Long-press the image to save it to Photos."); return; }
+      if (!(navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share)) {
+        toast("Long-press the image to save it to Photos."); return;
+      }
+      navigator.share({ files: [file], title: d.name + " — ScootSteps" })
+        .catch(function () { /* the user dismissed the sheet, or iOS refused it — the long-press path is on screen */ });
     };
   }
 
