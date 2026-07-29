@@ -13,8 +13,8 @@ iOS-first, Capacitor-wrapped web app. **Build 1 = free, iPhone-only, everything 
 | Step Engine (brief §5/§8) | ✅ real animation, audio-clock-driven, per-action easing, tempo 40–120%, step-by-step, ghost arrows, loop-a-section, wall compass + full rotation, mirror |
 | Catalog | ✅ 10 real dances, 339 step events, all validated & playable |
 | Glossary | ✅ 10 foundation steps as mini-dances |
-| App | ✅ Onboarding (Panic Mode), Home/Tonight, Library (typo-tolerant search + filters), Dance Detail, Player (Watch + Learn/Drill), My Dances, Settings, Paywall, cheat-sheet export |
-| Monetization | ✅ full Pro-gating built; ships **free** (no dead buy button); flip-to-config for build 2 |
+| App | ✅ Onboarding (Panic Mode), Home/Tonight, Library (typo-tolerant search + filters), Dance Detail, Player (Watch + Learn/Drill), My Dances, Settings, cheat-sheet export |
+| Monetization | ⛔ **not shipping.** No purchase screen, no product IDs, no Restore control, no purchase plugin. Everything is free and nothing says otherwise. Parked in `docs/build2-monetization/` |
 | Accessibility (§9) | ✅ shape+letter-coded feet, haptic counts, VoiceOver labels, adjustable text, reduced-motion |
 | Native wrap | ✅ Capacitor 8, portrait/iPhone-only, icon embedded |
 | Signing / TestFlight | ⏸ owned by the signing session (see below) |
@@ -29,15 +29,18 @@ www/
   js/data.glossary.js   10 foundation-step mini-dances
   js/sections.js        Learn-mode section model (8-count blocks / whole dance / ribbon)
   js/itunes-match.js    picks the right recording out of an iTunes Search result set
-  js/iap.js             Pro gating + StoreKit (CdvPurchase) — flip-to-config
   js/app.js             router, screens, player wiring, Learn Paths, state
 appicon-1024.png        app icon master — cowboy boot (rendered from tools/appicon.svg)
 tools/appicon.svg       the icon source; re-render with headless Chrome --screenshot
+scripts/shots.mjs       renders screenshots/ at 1290×2796 from the CURRENT www/
+screenshots/            App Store screenshots — RE-RUN shots.mjs after any UI change
+docs/privacy-policy.md  the page copy for jonathanscribbles.com/scootstep
+docs/build2-monetization/  the parked IAP module — NOT loaded by the app
 capacitor.config.json   appId com.jonathanbiles.scootstep, appName "ScootSteps"
 codemagic.yaml          iOS → TestFlight (Capacitor 8 / SPM); portrait + iPhone-only
 ```
 
-State persists in `localStorage` (works in the Capacitor webview). No network, no analytics SDK, no accounts — fully offline (the bar has no signal).
+State persists in `localStorage` (works in the Capacitor webview). No analytics SDK, no accounts, no ads. Every dance, diagram and count tick is bundled, so the whole learning flow works with no signal (the bar has none). **One** feature touches the network — the song **Preview** button hits Apple's public iTunes Search API for Apple's own 30-second clip and the matching Apple Music link. Say it that way in the listing and the privacy policy; "no network calls" would be false.
 
 ## Adding a dance = a data task (the moat)
 
@@ -51,18 +54,17 @@ ev(29,"L", "step", -0.5, 0.55, { turn:-90, cue:"New wall!" }) // ¼-turn left
 Actions: `step side cross walk together strut rock touch tap scuff brush kick hitch stomp hold clap`.
 Run `node validate-dances.mjs` — it checks schema, phrase coverage, on-grid bounds, no NaN, and that the walls close (e.g. a 4-wall dance's per-rep turn × 4 = 360°).
 
-## Monetization — flip for build 2
+## Monetization — deliberately absent from build 1
 
-Everything is wired; build 1 just ships free. To turn it on:
-1. In `www/js/iap.js` set `MONETIZATION_ENABLED = true`.
-2. Create these exact SKUs in App Store Connect (brief §6.5) and complete the **Paid Apps Agreement** (Business → banking + tax → "Active"):
-   - `com.jonathanbiles.scootstep.pro.monthly` — auto-renewable, **$6.99/mo**
-   - `com.jonathanbiles.scootstep.pro.yearly` — auto-renewable, **$29.99/yr**
-   - `com.jonathanbiles.scootstep.pro.lifetime` — non-consumable, **$59.99**
-   - `com.jonathanbiles.scootstep.pack.wedding` — non-consumable gift pack, **$4.99**
-3. `npm i cordova-plugin-purchase && npx cap sync ios` (the CdvPurchase v13 bridge).
+The app ships **entirely free** and there is no commerce surface anywhere in
+`www/`: no purchase screen, no product IDs, no price copy, no Restore control,
+and `cordova-plugin-purchase` is not a dependency. That is the point — a buy
+button that can't reach StoreKit, or a Restore button that returns immediately,
+is a dead control (Guideline 2.1) and a price the app can't charge is a 2.3.1.
 
-That's the only change — gating logic, locks, tempo caps, and the paywall UI already exist and are exercised by the flag. **Free tier stays 5 dances (incl. Cupid Shuffle + the Wobble) + all glossary + limited tempo.** Pro grants only from `store.when().verified()` — never optimistically, never from a guard (the ChordLoop `IAP_PATTERN.md` trap that once gave the product away free is avoided by construction).
+The gating module is parked, unwired, in `docs/build2-monetization/` with the
+turn-it-on checklist. Products must exist in App Store Connect **before** any of
+it comes back.
 
 ## Hand-off to the signing session (do NOT run Codemagic before this)
 
@@ -79,7 +81,8 @@ Code is done and pushed. To ship to TestFlight (PLAYBOOK §5–6):
 - Dance **step patterns are not copyrightable**; all descriptions, animations, and practice audio are original.
 - Choreographers credited where known (e.g. Boot Scootin' Boogie — line dance by Bill Bader, 1992). Public-domain classics and original beginner combos are prioritized.
 - **"Electric Slide" is intentionally held** from the shipped 10 (choreographer Ric Silver has historically enforced it) — the Wedding pack substitutes an original cha-cha-style pattern. Revisit with a permission/legal check before adding it.
-- App collects **no personal data** (privacy policy can state "none"). Support: jonathanbbiles@gmail.com.
+- App collects **no personal data** — answer "Data Not Collected" in the App Privacy questionnaire. Support: jonathanbbiles@gmail.com.
+- **Privacy Policy URL and Support URL are both** https://jonathanscribbles.com/scootstep — one page serves both, and it must be LIVE before submit — a 404 privacy URL is an automatic reject, and it is the one gate blocker this repo cannot close on its own. Ready-to-publish copy: `docs/privacy-policy.md`. The same URL is opened by Settings → "Privacy policy ↗" (`PRIVACY_URL` in `www/js/app.js`).
 
 ## Validation
 

@@ -7,9 +7,12 @@ The catalog IS the SEO: every famous dance name is content people already search
 **Bundle ID:** `com.jonathanbiles.scootstep`
 **Primary category:** Education · **Secondary:** Health & Fitness
 **Age rating:** 4+ (no objectionable content)
-**Price:** Free (build 1). IAP off until build 2.
-**Support / Marketing URL:** https://jonathanscribbles.com/scootsteps
-**Privacy Policy URL:** https://jonathanscribbles.com/scootsteps  *(one page serves both — Apple allows it)*
+**Price:** Free. No in-app purchases exist in this build — there is no paywall, no product ID and no Restore control anywhere in `www/`, and `cordova-plugin-purchase` is not installed. Answer the IAP question in ASC with **none**.
+**Support / Marketing URL:** https://jonathanscribbles.com/scootstep
+**Privacy Policy URL:** https://jonathanscribbles.com/scootstep  *(one page serves both — Apple allows it)*
+
+> ⚠️ **That page must be live before submit.** A 404 privacy URL is an automatic
+> reject. Ready-to-publish copy is in `docs/privacy-policy.md`.
 
 ## Keywords (100 chars, comma-separated, no spaces)
 ```
@@ -33,14 +36,14 @@ TELL US YOUR DEADLINE
 LEARN ANY DANCE FOUR WAYS
 Watch it full speed → Learn it in 8-count chunks → Drill it slow → Dance it for real, through every wall.
 
-FREE TO SUCCEED
-Five full dances free — including the Cupid Shuffle and the Wobble, the two you'll actually need — plus every foundation step in the Basics glossary.
+FREE, ALL OF IT
+Ten full dances — including the Cupid Shuffle and the Wobble, the two you'll actually need — plus every foundation step in the Basics glossary. No account, no ads, nothing to buy.
 
 WHAT'S INSIDE
 • Animated footwork for every dance, adjustable 40–120% tempo (pitch-independent)
 • Step-by-step mode with ghost-arrow previews
 • Wall compass + mirror view (taught like a real class)
-• Works fully offline — because the bar has no signal
+• The dances work with no signal — every step is built in, nothing to download
 • Grapevine, jazz box, shuffle, pivot and more, broken down slow
 
 No confusing videos. No copyrighted music. Just you, two boots, and a very good Friday night.
@@ -48,7 +51,7 @@ No confusing videos. No copyrighted music. Just you, two boots, and a very good 
 
 ## App Review notes (guards against a 4.2 "minimum functionality" flag)
 ```
-ScootSteps teaches line dancing via an original in-house animation engine that renders each dance from structured step data (not videos). To review: open any dance → "Start learning" → step through the 8-count chunks, or "Watch full" and drag the tempo slider. Everything works offline. No login required. No copyrighted audio — the app plays a synthesized count track only; song titles are references with search deep links. Build 1 is free; no purchases are enabled.
+ScootSteps teaches line dancing via an original in-house animation engine that renders each dance from structured step data (not videos). To review: open any dance → "Start learning" → step through the 8-count chunks, or "Watch full" and drag the tempo slider. Every dance, diagram and the count track are bundled in the app and work with no network. No login required. No copyrighted audio — the app plays a synthesized count track only; song titles are references, and the optional "Preview" button plays Apple's own 30-second iTunes preview (those buttons are the only feature that needs the internet, and they fail gracefully offline). This build contains NO in-app purchases: no paywall, no products, no Restore control.
 ```
 
 ## Screenshots (iPhone 6.7" = 1290×2796; 6.5" = 1284×2778). iPhone-only → NO iPad set required.
@@ -56,9 +59,18 @@ Suggested 6, first two matter most:
 1. Player (Cupid Shuffle) — caption "See every step, count by count"
 2. Tempo slider at 60% — "Slow it down till it clicks"
 3. Onboarding "When do you need to dance?" — "Tell us your deadline"
-4. Library grid — "40+ dances and growing"
+4. Library grid — "Ten dances, every basic"
 5. Learn/step mode with ghost arrow — "Learn it in 8-count chunks"
 6. Glossary — "Master the basics, slow"
 
 ## Privacy (App Privacy questionnaire)
-Data collected: **None.** No tracking, no third-party SDKs, no account, no network calls. Answer "Data Not Collected."
+Data collected: **None.** Answer "Data Not Collected." No account, no ads, no
+analytics, no tracking SDK, no IDFA. All progress (streak, shelf, settings) is
+written to `localStorage` on the device and never sent anywhere.
+
+The one network call the app makes — state it accurately, don't claim "no
+network calls": tapping **Preview** on a song sends the song title and artist to
+Apple's public iTunes Search API (`itunes.apple.com/search`) to fetch Apple's own
+30-second preview and the matching Apple Music link. Nothing about the user goes
+with that request, and it is not tracking, so "Data Not Collected" is still the
+correct answer.

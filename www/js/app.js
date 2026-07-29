@@ -1,17 +1,22 @@
 /* ============================================================================
-   ScootSteps — APP  (router, screens, player wiring, Learn Paths, gating, state)
+   ScootSteps — APP  (router, screens, player wiring, Learn Paths, state)
    Offline-first: all content is bundled JS; state persists in localStorage
    (works in the Capacitor webview). Every control does its real thing.
+   Build 1 ships with NO in-app purchase: no purchase screen, no product IDs,
+   no Restore control, nothing locked. See docs/build2-monetization/.
    ============================================================================ */
 (function () {
   "use strict";
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   var DANCES = window.SS_DANCES, GLOSS = window.SS_GLOSSARY;
+  // The single page that serves as both the Privacy Policy URL and the Support URL in App Store
+  // Connect. It must be live BEFORE submit — a 404 here is an automatic reject.
+  var PRIVACY_URL = "https://jonathanscribbles.com/scootstep";
   var byId = {}; DANCES.concat(GLOSS).forEach(function (d) { byId[d.id] = d; });
 
   /* ---------------- persistent state ---------------- */
-  var DEFAULT = { onboarded: false, plan: null, mastery: {}, downloaded: {}, want: {},
+  var DEFAULT = { onboarded: false, plan: null, mastery: {}, want: {},
     streak: { count: 0, last: null }, history: [],
     settings: { countStyle: "click", haptics: true, orientation: "portrait", reminders: true, textScale: 1 } };
   var S = load();
@@ -131,9 +136,8 @@
   }
 
   function danceCardWide(d) {
-    var locked = window.Monetize.enabled() && !window.Monetize.isUnlocked(d);
     return '<button class="dcard wide" data-open="' + d.id + '">' +
-      '<div class="thumb" data-thumb="' + d.id + '">' + (d.famous ? '<span class="pin">📌</span>' : '') + (locked ? '<span class="lock">🔒 Pro</span>' : '') + '</div>' +
+      '<div class="thumb" data-thumb="' + d.id + '">' + (d.famous ? '<span class="pin">📌</span>' : '') + '</div>' +
       '<div class="body"><div class="nm">' + esc(d.name) + '</div>' +
       '<div class="meta">' + d.counts + ' counts · ' + d.walls + ' wall' + (d.walls > 1 ? 's' : '') + '</div>' +
       '<div class="meta boots">' + boots(d.difficulty) + '</div>' +
@@ -141,9 +145,8 @@
       '</div></button>';
   }
   function danceCard(d) {
-    var locked = window.Monetize.enabled() && !window.Monetize.isUnlocked(d);
     return '<button class="dcard" data-open="' + d.id + '">' +
-      '<div class="thumb" data-thumb="' + d.id + '">' + (d.famous ? '<span class="pin">📌</span>' : '') + (locked ? '<span class="lock">🔒 Pro</span>' : '') + '</div>' +
+      '<div class="thumb" data-thumb="' + d.id + '">' + (d.famous ? '<span class="pin">📌</span>' : '') + '</div>' +
       '<div class="body"><div class="nm">' + esc(d.name) + '</div>' +
       '<div class="meta">' + d.counts + 'ct · ' + d.walls + 'w · <span class="boots">' + boots(d.difficulty) + '</span></div>' +
       '</div></button>';
@@ -363,7 +366,6 @@
   function openDetail(id) {
     var d = byId[id]; if (!d) return;
     var v = $("#view-detail");
-    var locked = window.Monetize.enabled() && !window.Monetize.isUnlocked(d);
     var songHtml = (d.songs || []).map(function (s, i) {
       var pid = d.id + "_" + i;
       return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--line)">' +
@@ -372,7 +374,7 @@
         '<button class="chip prevbtn" data-prev="' + pid + '" data-title="' + esc(s.title) + '" data-artist="' + esc(s.artist) + '" aria-label="Play 30-second preview of ' + esc(s.title) + '">▶ Preview</button>' +
         '</div>';
     }).join('');
-    var mastery = S.mastery[d.id] || null, dl = !!S.downloaded[d.id], want = !!S.want[d.id];
+    var mastery = S.mastery[d.id] || null, want = !!S.want[d.id];
     var html = '';
     html += '<div class="vhead"><button class="iconbtn" id="d-back" aria-label="Back">‹</button>' +
       '<button class="iconbtn" id="d-share" aria-label="Share cheat sheet">⤴️</button></div>';
@@ -387,14 +389,12 @@
     html += '<div class="chips" style="margin-bottom:10px">' + (d.tags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') + '</div>';
     if (d.definition) html += '<div class="p" style="margin-bottom:12px">' + esc(d.definition) + '</div>';
     html += '<div class="p" style="margin-bottom:14px">Choreography: ' + esc(d.choreographer_credit) + '. Songs referenced for practice only — we play an original count track, never the record.</div>';
-    if (locked) {
-      html += '<div class="card spotlight"><div class="eyebrow">ScootSteps Pro</div><div class="h2">Unlock the full catalog</div><div class="p">This one\'s part of Pro. Your free dances (including Cupid Shuffle and the Wobble) are always open.</div><div style="margin-top:12px"><button class="btn primary" id="d-unlock">See Pro</button></div></div>';
-    } else {
-      html += '<button class="btn primary" id="d-learn" style="margin-bottom:10px">🎓 Start learning</button>';
-      html += '<div class="prow" style="display:flex;gap:10px;margin-bottom:10px">' +
-        '<button class="btn" id="d-watch">▶ Watch full</button>' +
-        '<button class="btn' + (dl ? ' good' : '') + '" id="d-dl">' + (dl ? '✓ Saved offline' : '⬇ Save offline') + '</button></div>';
-    }
+    html += '<button class="btn primary" id="d-learn" style="margin-bottom:10px">🎓 Start learning</button>';
+    html += '<button class="btn" id="d-watch">▶ Watch full</button>';
+    // There is no "download" button because there is nothing to download: every dance, diagram and
+    // count tick is already bundled in the app. A toggle that only flips a localStorage flag and
+    // says "saved" is a mock, and reads as one (Guideline 2.3.1).
+    html += '<div class="p" style="margin:10px 0 4px">Already on your phone — the steps, the diagram and the count track all work with no signal. (Song previews and song links need the internet.)</div>';
     html += '<div class="eyebrow" style="margin:16px 0 6px">How well do you know it?</div>';
     html += '<div class="seg" id="d-mastery">' +
       ['want|Want to learn', 'learning|Learning', 'can-follow|Can follow', 'know-it|Know it cold'].map(function (o) { var k = o.split('|'); return '<button data-m="' + k[0] + '"' + ((mastery === k[0] || (k[0] === 'want' && want && !mastery)) ? ' class="on"' : '') + '>' + k[1] + '</button>'; }).join('') + '</div>';
@@ -414,10 +414,8 @@
       b.onclick = function () { Preview.toggle(b.dataset.prev, b.dataset.title, b.dataset.artist); };
     });
     $("#d-share").onclick = function () { exportCheatSheet(d); };
-    var un = $("#d-unlock"); if (un) un.onclick = openPaywall;
     var lb = $("#d-learn"); if (lb) lb.onclick = function () { openPlayer(d, "learn"); };
     var wb = $("#d-watch"); if (wb) wb.onclick = function () { openPlayer(d, "watch"); };
-    var db = $("#d-dl"); if (db) db.onclick = function () { S.downloaded[d.id] = !S.downloaded[d.id]; save(); toast(S.downloaded[d.id] ? "Saved for the bar — works with no signal." : "Removed from offline."); openDetail(d.id); };
     $$("#d-mastery [data-m]").forEach(function (b) { b.onclick = function () { setMastery(d.id, b.dataset.m); $$("#d-mastery [data-m]").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); toast("Marked: " + b.textContent); }; });
   }
   function setMastery(id, m) { if (m === "want") { S.want[id] = true; delete S.mastery[id]; } else { S.mastery[id] = m; delete S.want[id]; } save(); }
@@ -493,9 +491,8 @@
     $("#p-canvas").setAttribute("aria-label", "Top-down animation of two boots for " + d.name + ", " + d.counts + " counts, " + d.walls + " walls");
     buildRibbon();
     ensureEngine(); eng.load(d); eng.setMute(!countsOn);
-    var tr = window.Monetize.tempoRange(), tempo = $("#p-tempo");
-    tempo.min = tr[0]; tempo.max = tr[1]; if (+tempo.value < tr[0]) tempo.value = tr[0]; if (+tempo.value > tr[1]) tempo.value = tr[1];
-    $("#p-tempolock").classList.toggle("hide", !(window.Monetize.enabled() && !window.Monetize.hasPro()));
+    var tempo = $("#p-tempo");
+    tempo.min = 40; tempo.max = 120; if (+tempo.value < 40) tempo.value = 40; if (+tempo.value > 120) tempo.value = 120;
     setTempoUI(+tempo.value);
     if (d.glossary) { $("#p-mode-watch").parentNode.classList.add("hide"); playerMode = "watch"; } else { $("#p-mode-watch").parentNode.classList.remove("hide"); }
     Music.setDance(d.id);
@@ -664,29 +661,6 @@
     S.onboarded = true; save();
   }
 
-  /* ---------------- PAYWALL ---------------- */
-  function openPaywall() {
-    var o = $("#paywall"), M = window.Monetize;
-    var feats = [['Full catalog', 'Every dance in the catalog, not just the free 5'], ['Offline downloads', 'Works with no signal — the bar has none'], ['Section looping', 'Drill counts 17–24 till it sticks'], ['Every learn path', 'Panic-mode plans and packs'], ['Cheat-sheet export', 'A printable step sheet for your pocket']];
-    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="eyebrow">ScootSteps Pro</div><button class="btn ghost sm" id="pw-close">✕</button></div>';
-    html += '<div class="vtitle" style="margin-bottom:6px">Never sit one out again</div>';
-    html += '<div class="vsub" style="margin-bottom:18px">Your free dances stay free forever. Pro opens the rest.</div>';
-    html += feats.map(function (f) { return '<div class="paywall-feat"><span class="k">✓</span><span><b>' + f[0] + '</b><span>' + f[1] + '</span></span></div>'; }).join('');
-    if (M.enabled()) {
-      html += '<div style="margin-top:8px">' +
-        '<button class="price-opt best" data-buy="yearly"><span><b>Yearly · ' + M.priceOf('yearly') + '</b><small>Best value — under $2.50/mo</small></span><span class="chip amber">Save</span></button>' +
-        '<button class="price-opt" data-buy="monthly"><span><b>Monthly · ' + M.priceOf('monthly') + '</b><small>Cancel anytime</small></span></button>' +
-        '<button class="price-opt" data-buy="lifetime"><span><b>Lifetime · ' + M.priceOf('lifetime') + '</b><small>Pay once, yours forever</small></span></button></div>';
-      html += '<button class="btn ghost sm" id="pw-restore" style="margin:10px auto 0">Restore purchases</button>';
-    } else {
-      html += '<div class="card spotlight" style="margin-top:10px"><div class="h2">Everything\'s unlocked 🎉</div><div class="p">This early TestFlight build is fully free — every dance, every tempo, every path. Pricing turns on in a later build ($6.99/mo · $29.99/yr · $59.99 lifetime). For now: go dance.</div></div>';
-    }
-    o.innerHTML = html; o.classList.add("on");
-    $("#pw-close").onclick = function () { o.classList.remove("on"); };
-    var rb = $("#pw-restore"); if (rb) rb.onclick = function () { M.restore(); toast("Checking for past purchases…"); };
-    $$("[data-buy]", o).forEach(function (b) { b.onclick = function () { var okd = M.buy(b.dataset.buy); if (!okd) toast("Store isn't ready yet — try again in a moment."); }; });
-  }
-
   /* ---------------- MY DANCES ---------------- */
   function renderMyDances() {
     var v = $("#view-mydances");
@@ -694,7 +668,7 @@
     var html = '<div class="vhead"><div><div class="vtitle">My Dances</div><div class="vsub">Your shelf. Your streak. Your night.</div></div></div>';
     html += '<div class="statrow"><div class="stat"><b>' + S.streak.count + '</b><span>day streak</span></div>' +
       '<div class="stat"><b>' + S.history.length + '</b><span>practices</span></div>' +
-      '<div class="stat"><b>' + Object.keys(S.downloaded).filter(function (k) { return S.downloaded[k]; }).length + '</b><span>offline</span></div></div>';
+      '<div class="stat"><b>' + Object.keys(S.mastery).filter(function (id) { return S.mastery[id] === "know-it"; }).length + '</b><span>know cold</span></div></div>';
     var any = false;
     shelves.forEach(function (sh) {
       var ids = DANCES.concat(GLOSS).filter(function (d) { return sh[0] === 'want' ? S.want[d.id] : S.mastery[d.id] === sh[0]; });
@@ -717,19 +691,18 @@
     html += toggle('haptics', s.haptics, 'Haptic counts', 'Feel every beat — great when the room is loud.');
     html += '<div class="eyebrow" style="margin:16px 0 8px">Comfort</div>';
     html += '<div class="card"><b style="font-weight:800">Text size</b><div class="p" style="margin:2px 0 6px">Bigger type across the whole app.</div><input type="range" id="set-text" min="0.9" max="1.35" step="0.05" value="' + (s.textScale || 1) + '" aria-label="Text size"></div>';
-    html += '<div class="eyebrow" style="margin:16px 0 8px">ScootSteps Pro</div>';
-    html += '<div class="card"><b style="font-weight:800">Membership</b><div class="p">' + (window.Monetize.hasPro() ? 'Pro is active. Thank you!' : 'Free — the starter dances, all basics, and (right now) everything else too.') + '</div><div style="margin-top:10px;display:flex;gap:8px"><button class="btn sm" id="set-pro">See Pro</button><button class="btn sm ghost" id="set-restore">Restore</button></div></div>';
     html += '<div class="eyebrow" style="margin:16px 0 8px">About</div>';
+    html += '<div class="card"><b style="font-weight:800">Works with no signal</b><div class="p">Every dance, every diagram and the count track are built into the app — nothing to download. Song previews and song links are the only parts that need the internet.</div></div>';
+    html += '<div class="card"><b style="font-weight:800">Privacy</b><div class="p" style="margin:2px 0 9px">No account, no ads, no analytics. Your streak, your shelf and your settings are saved on this phone. Tapping Preview asks Apple\'s public iTunes search for the song — nothing about you goes with it.</div><button class="btn sm" id="set-privacy">Privacy policy ↗</button></div>';
     html += '<div class="card"><b style="font-weight:800">More from Jonathan</b><div class="p" style="margin:2px 0 9px">Art, stories, and what\'s next.</div><button class="btn sm" id="set-web">Visit jonathanscribbles.com ↗</button></div>';
     html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps · learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';
     v.innerHTML = html;
     $("#set-back").onclick = function () { showView("home"); };
     $("#set-web").onclick = function () { openExternal("https://jonathanscribbles.com"); };
+    $("#set-privacy").onclick = function () { openExternal(PRIVACY_URL); };
     $$("#set-count [data-cs]").forEach(function (b) { b.onclick = function () { s.countStyle = b.dataset.cs; save(); renderSettings(); }; });
     $$("[data-tog]").forEach(function (b) { b.onclick = function () { s[b.dataset.tog] = !s[b.dataset.tog]; save(); renderSettings(); }; });
     $("#set-text").addEventListener("input", function () { s.textScale = +this.value; applyTextScale(); save(); });
-    $("#set-pro").onclick = openPaywall;
-    $("#set-restore").onclick = function () { window.Monetize.restore(); toast("Checking for past purchases…"); };
   }
   function applyOrientation() { /* orientation lock is applied natively via Capacitor config; portrait is default */ }
 
@@ -836,7 +809,6 @@
   }
   ["pointerdown", "touchend", "mousedown"].forEach(function (ev) { document.addEventListener(ev, primeAudio, { passive: true }); });
 
-  window.Monetize.init(); window.Monetize.onChange(function () {});
   applyTextScale();
   document.addEventListener("DOMContentLoaded", start);
   if (document.readyState !== "loading") start();
