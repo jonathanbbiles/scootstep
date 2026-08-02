@@ -222,20 +222,129 @@
 
     // Result matching lives in js/itunes-match.js so it can be unit-tested against the live API.
     var pick = window.SS_iTunesMatch.pick;
-    // iTunes Search sends NO Access-Control-Allow-Origin, so fetch() is blocked in the webview —
-    // JSONP (script tag) is the only cross-origin path that works here. Keep it.
-    function jsonp(title, artist) {
-      return new Promise(function (resolve) {
-        var cb = "__it" + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/g, "") + (jsonp._n = (jsonp._n || 0) + 1);
-        var s = document.createElement("script"), done = false;
-        window[cb] = function (d) { done = true; cleanup(); resolve(pick(d && d.results, title, artist)); };
+
+    /* WHY THIS IS NOT JSONP ANY MORE
+       ------------------------------
+       The old comment here claimed iTunes Search sends no Access-Control-Allow-Origin, so a script
+       tag was the only cross-origin path. What it actually does is worse than either: the header
+       is INCONSISTENT. Measured minutes apart on the same URL, one response came back with
+       `access-control-allow-origin: capacitor://localhost` and the next came back with none — it
+       is served through Akamai, and whether the CORS header survives depends on which edge node
+       answers and whether it is a cache hit. A browser-enforced fetch() against that is a coin
+       flip, which is its own way to produce previews that work sometimes.
+
+       So this does not rely on CORS at all. CapacitorHttp is enabled in capacitor.config.json,
+       which routes fetch() through native URLSession on device — no CORS enforcement, because
+       there is no browser in the path. jsonpGet stays as the fallback for a plain browser, where
+       the script tag is still immune to CORS.
+
+       The reason it MATTERS is diagnosis. A script tag reports exactly one thing: "the browser
+       could not run this". Apple rate-limits this endpoint (roughly 20 requests a minute) and
+       answers a burst with a 403 whose body is not JSONP — that body would parse as a syntax
+       error, which does NOT fire script.onerror, so the old code just sat there until its 8-second
+       timeout and reported the same "Couldn't reach the preview service" it reported for a dead
+       network, a bad song title, and everything else. Every failure looked identical, which is why
+       this went unexplained for so long. fetch() gives us the status code. */
+    var ENDPOINT = "https://itunes.apple.com/search?media=music&entity=song&country=US&limit=25&term=";
+    var TIMEOUT_MS = 9000;
+
+    // AbortSignal.timeout() is iOS 16+; build it by hand so older phones aren't left without one.
+    function httpGet(url) {
+      return new Promise(function (done) {
+        var ctl = null, killed = false;
+        try { ctl = new AbortController(); } catch (e) {}
+        var to = setTimeout(function () { killed = true; if (ctl) { try { ctl.abort(); } catch (e) {} } done({ reason: "timeout" }); }, TIMEOUT_MS);
+        var opts = ctl ? { signal: ctl.signal } : {};
+        var f;
+        try { f = fetch(url, opts); } catch (e) { clearTimeout(to); done({ reason: "no-fetch" }); return; }
+        if (!f || !f.then) { clearTimeout(to); done({ reason: "no-fetch" }); return; }
+        f.then(function (r) {
+          if (killed) return;
+          clearTimeout(to);
+          if (!r.ok) { done({ reason: r.status === 403 || r.status === 429 ? "busy" : "http", status: r.status }); return; }
+          // The endpoint answers text/javascript even without a callback, so ask for text and parse
+          // it ourselves rather than letting response.json() decide based on the content type.
+          r.text().then(function (t) {
+            try { done({ data: JSON.parse(t) }); }
+            catch (e) { done({ reason: "unparseable" }); }
+          }, function () { done({ reason: "unparseable" }); });
+        }, function () {
+          if (killed) return;
+          clearTimeout(to);
+          done({ reason: "offline" });          // TypeError from fetch = no route to host
+        });
+      });
+    }
+
+    // Last resort for a plain browser whose origin the endpoint will not echo (and for anything
+    // that leaves fetch unavailable). Same script-tag trick as before, kept deliberately small.
+    function jsonpGet(url) {
+      return new Promise(function (done) {
+        var cb = "__it" + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/g, "") + (jsonpGet._n = (jsonpGet._n || 0) + 1);
+        var s = document.createElement("script"), settled = false;
+        function finish(v) { if (settled) return; settled = true; cleanup(); done(v); }
         function cleanup() { try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); clearTimeout(to); }
-        var to = setTimeout(function () { if (!done) { cleanup(); resolve(null); } }, 8000);
-        s.onerror = function () { if (!done) { cleanup(); resolve(null); } };
-        s.src = "https://itunes.apple.com/search?media=music&entity=song&country=US&limit=25&callback=" + cb +
-                "&term=" + encodeURIComponent(title + " " + artist);
+        window[cb] = function (d) { finish({ data: d }); };
+        var to = setTimeout(function () { finish({ reason: "timeout" }); }, TIMEOUT_MS);
+        s.onerror = function () { finish({ reason: "offline" }); };
+        s.src = url.replace("&term=", "&callback=" + cb + "&term=");
         document.head.appendChild(s);
       });
+    }
+
+    function search(term) {
+      var url = ENDPOINT + encodeURIComponent(term);
+      return httpGet(url).then(function (res) {
+        if (res.reason === "no-fetch") return jsonpGet(url);
+        return res;
+      });
+    }
+
+    // Apple rate-limits by IP, and opening a dance used to fire one lookup per song at once while
+    // the player fired another. Two at a time, which is plenty to feel instant, and a burst can no
+    // longer earn us a 403 that then breaks every other song on the screen.
+    var running = 0, queue = [];
+    function throttled(fn) {
+      return new Promise(function (done) {
+        queue.push(function () {
+          running++;
+          fn().then(function (v) { running--; pump(); done(v); },
+                    function () { running--; pump(); done({ reason: "offline" }); });
+        });
+        pump();
+      });
+    }
+    function pump() { while (running < 2 && queue.length) queue.shift()(); }
+
+    // "Save a Horse (Ride a Cowboy)" and friends: the parenthetical is part of the title in our
+    // catalog but not always in Apple's, so a miss on the full string is retried without it, then
+    // on the bare title. A no-match is a real answer, not a network failure, and is reported as one.
+    function terms(title, artist) {
+      var bare = title.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+      var out = [title + " " + artist];
+      if (bare && bare !== title) out.push(bare + " " + artist);
+      out.push(title);
+      return out.filter(function (t, i, a) { return t && a.indexOf(t) === i; });
+    }
+
+    function lookup(title, artist) {                    // -> {hit} | {reason}
+      var list = terms(title, artist), i = 0, lastReason = "offline";
+      function step() {
+        if (i >= list.length) return Promise.resolve({ reason: lastReason === "no-match" ? "no-match" : lastReason });
+        var term = list[i++];
+        return throttled(function () { return search(term); }).then(function (res) {
+          if (res.data) {
+            var hit = pick(res.data.results, title, artist);
+            if (hit) return { hit: hit };
+            lastReason = "no-match";
+            return step();
+          }
+          lastReason = res.reason || "offline";
+          // A transport failure won't be fixed by rewording the query — stop and say so.
+          return (lastReason === "no-match") ? step() : { reason: lastReason, status: res.status };
+        });
+      }
+      return step();
     }
     function ensureAudio() {
       if (!audio) {
@@ -261,28 +370,42 @@
       var a = document.querySelector('[data-applelink="' + id + '"]'); if (!a) return;
       a.setAttribute("href", view);
     }
-    var pending = {};
+    var pending = {}, lastReason = {};
     function key(title, artist) { return title + " " + artist; }
     function resolve(title, artist) {                     // -> Promise<{preview,view}|null>, memoized
       var k = key(title, artist);
       if (cache[k] !== undefined) return Promise.resolve(cache[k]);
       if (pending[k]) return pending[k];
-      var p = jsonp(title, artist).then(function (hit) {
-        if (hit) cache[k] = hit; else delete cache[k];     // don't memoize a failure — allow a retry
-        delete pending[k]; return hit || null;
+      var p = lookup(title, artist).then(function (res) {
+        if (res.hit) { cache[k] = res.hit; delete lastReason[k]; }
+        else { delete cache[k]; lastReason[k] = res.reason; }  // never memoize a failure — allow a retry
+        delete pending[k]; return res.hit || null;
       });
       pending[k] = p; return p;
+    }
+    // Why the last attempt for this song failed, so the toast can say something true.
+    function reasonFor(title, artist) { return lastReason[key(title, artist)] || null; }
+    function reasonText(reason, hasLink) {
+      switch (reason) {
+        case "no-match":  return hasLink ? "No 30-sec clip for this one — tap Apple Music for the full song."
+                                         : "Apple has no 30-sec clip for this one.";
+        case "busy":      return "Apple's preview service is rate-limiting us — give it a moment, then tap again.";
+        case "offline":   return "No connection — previews need the internet. The dance and the count track don't.";
+        case "timeout":   return "The preview service didn't answer in time — tap to retry.";
+        default:          return "Couldn't reach the preview service — tap to retry.";
+      }
     }
     // warm the cache when the detail opens, and upgrade the deep link as soon as it resolves
     function prefetch(id, title, artist) {
       if (!title) return;
       resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); });
     }
-    function play(id, hit) {
+    function play(id, hit, title, artist) {
       if (!hit || !hit.preview) {
         setBtn(id, "retry"); current = null;
-        toast(hit && hit.view ? "No 30-sec clip — tap Apple Music for the full song."
-                              : "Couldn't reach the preview service — tap to retry.");
+        // Say WHICH failure it was. These used to collapse into one message, so a rate-limit, a
+        // dead network and a song Apple simply has no clip for were indistinguishable on screen.
+        toast(reasonText(hit ? "no-match" : reasonFor(title, artist), !!(hit && hit.view)));
         return;
       }
       audio.src = hit.preview; current = id; setBtn(id, "playing");   // optimistic — the tap plays it; revert only if blocked/errored
@@ -294,8 +417,8 @@
       if (current === id && !audio.paused) { audio.pause(); setBtn(id, "idle"); current = null; return; }
       if (current && current !== id) { audio.pause(); setBtn(current, "idle"); }
       var k = key(title, artist);
-      if (cache[k] !== undefined) { linkUp(id, cache[k].view); play(id, cache[k]); }   // prefetched -> play SYNCHRONOUSLY inside the tap (iOS-safe)
-      else { setBtn(id, "loading"); resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); play(id, hit); }); }
+      if (cache[k] !== undefined) { linkUp(id, cache[k].view); play(id, cache[k], title, artist); }   // prefetched -> play SYNCHRONOUSLY inside the tap (iOS-safe)
+      else { setBtn(id, "loading"); resolve(title, artist).then(function (hit) { if (hit) linkUp(id, hit.view); play(id, hit, title, artist); }); }
     }
     function stopAll() { if (audio && !audio.paused) audio.pause(); if (current) { setBtn(current, "idle"); current = null; } }
     function cached(title, artist) { return cache[key(title, artist)]; }
