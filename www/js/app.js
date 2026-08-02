@@ -12,7 +12,10 @@
   var DANCES = window.SS_DANCES, GLOSS = window.SS_GLOSSARY;
   // The single page that serves as both the Privacy Policy URL and the Support URL in App Store
   // Connect. It must be live BEFORE submit — a 404 here is an automatic reject.
-  var PRIVACY_URL = "https://jonathanscribbles.com/scootstep";
+  // jonathanscribbles.com is WordPress on WP Engine, so /scootstep can only be created by hand in
+  // WP; this points at the GitHub Pages privacy site instead (same repo that serves Bull or Bust),
+  // which is version-controlled and goes live with one push. Source: app-privacy/scootstep.html.
+  var PRIVACY_URL = "https://jonathanbbiles.github.io/app-privacy/scootstep.html";
   var byId = {}; DANCES.concat(GLOSS).forEach(function (d) { byId[d.id] = d; });
 
   /* ---------------- persistent state ---------------- */

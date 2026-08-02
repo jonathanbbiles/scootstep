@@ -8,8 +8,8 @@ The catalog IS the SEO: every famous dance name is content people already search
 **Primary category:** Education · **Secondary:** Health & Fitness
 **Age rating:** 4+ (no objectionable content)
 **Price:** Free. No in-app purchases exist in this build — there is no paywall, no product ID and no Restore control anywhere in `www/`, and `cordova-plugin-purchase` is not installed. Answer the IAP question in ASC with **none**.
-**Support / Marketing URL:** https://jonathanscribbles.com/scootstep
-**Privacy Policy URL:** https://jonathanscribbles.com/scootstep  *(one page serves both — Apple allows it)*
+**Support / Marketing URL:** https://jonathanbbiles.github.io/app-privacy/scootstep.html
+**Privacy Policy URL:** https://jonathanbbiles.github.io/app-privacy/scootstep.html  *(one page serves both — Apple allows it)*
 
 > ⚠️ **That page must be live before submit.** A 404 privacy URL is an automatic
 > reject. Ready-to-publish copy is in `docs/privacy-policy.md`.

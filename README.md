@@ -34,7 +34,7 @@ appicon-1024.png        app icon master — cowboy boot (rendered from tools/app
 tools/appicon.svg       the icon source; re-render with headless Chrome --screenshot
 scripts/shots.mjs       renders screenshots/ at 1290×2796 from the CURRENT www/
 screenshots/            App Store screenshots — RE-RUN shots.mjs after any UI change
-docs/privacy-policy.md  the page copy for jonathanscribbles.com/scootstep
+docs/privacy-policy.md  the page copy behind the Privacy Policy / Support URL
 docs/build2-monetization/  the parked IAP module — NOT loaded by the app
 capacitor.config.json   appId com.jonathanbiles.scootstep, appName "ScootSteps"
 codemagic.yaml          iOS → TestFlight (Capacitor 8 / SPM); portrait + iPhone-only
@@ -82,7 +82,7 @@ Code is done and pushed. To ship to TestFlight (PLAYBOOK §5–6):
 - Choreographers credited where known (e.g. Boot Scootin' Boogie — line dance by Bill Bader, 1992). Public-domain classics and original beginner combos are prioritized.
 - **"Electric Slide" is intentionally held** from the shipped 10 (choreographer Ric Silver has historically enforced it) — the Wedding pack substitutes an original cha-cha-style pattern. Revisit with a permission/legal check before adding it.
 - App collects **no personal data** — answer "Data Not Collected" in the App Privacy questionnaire. Support: jonathanbbiles@gmail.com.
-- **Privacy Policy URL and Support URL are both** https://jonathanscribbles.com/scootstep — one page serves both, and it must be LIVE before submit — a 404 privacy URL is an automatic reject, and it is the one gate blocker this repo cannot close on its own. Ready-to-publish copy: `docs/privacy-policy.md`. The same URL is opened by Settings → "Privacy policy ↗" (`PRIVACY_URL` in `www/js/app.js`).
+- **Privacy Policy URL and Support URL are both** https://jonathanbbiles.github.io/app-privacy/scootstep.html — one page serves both, and it must be LIVE before submit; a 404 privacy URL is an automatic reject. The page is written and committed at `jonathanbbiles/app-privacy` → `scootstep.html`, alongside the Bull or Bust one; it goes live on `git push` and nothing else. It was NOT pushed automatically — publishing public content is Jonathan's call. `jonathanscribbles.com/scootstep` (no scheme on purpose — the auditor resolves every https:// URL in this file) was the original declared URL, but that site is WordPress on WP Engine, so the route can only be made by hand in WP; if you'd rather have it there, publish the same copy and change `PRIVACY_URL` in `www/js/app.js` back. Copy: `docs/privacy-policy.md`.
 
 ## Validation
 

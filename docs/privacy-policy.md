@@ -1,12 +1,20 @@
 # ScootSteps — privacy policy & support
 
-**Publish this at:** `https://jonathanscribbles.com/scootstep`
+**This is already built as a page:** `jonathanbbiles/app-privacy` → `scootstep.html`,
+which serves at `jonathanbbiles.github.io/app-privacy/scootstep.html`. It is
+committed on `main` in that repo but **not pushed** — one `git push` publishes it.
 
-That exact URL is what the app's Settings → **Privacy policy ↗** button opens,
-and it is the URL entered in App Store Connect for **both** the Privacy Policy
-URL and the Support URL. One page serves both — Apple allows it — but the page
-must be **live and returning 200 before submit**. A 404 privacy URL is an
-automatic reject.
+That URL is what the app's Settings → **Privacy policy ↗** button opens
+(`PRIVACY_URL` in `www/js/app.js`), and it is the URL entered in App Store
+Connect for **both** the Privacy Policy URL and the Support URL. One page serves
+both — Apple allows it — but the page must be **live and returning 200 before
+submit**. A 404 privacy URL is an automatic reject.
+
+The originally declared URL was `jonathanscribbles.com/scootstep`. That site is
+WordPress on WP Engine, so the route can only be created by hand in WP; the
+GitHub Pages page exists because it is version-controlled and publishes with a
+push. To go back to the WordPress route instead, paste the copy below into a WP
+page and point `PRIVACY_URL` at it.
 
 Everything below is true of the shipped build. Don't add claims to it (no
 "we never touch the network", no analytics promises about a future version) —
