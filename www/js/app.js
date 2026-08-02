@@ -359,7 +359,11 @@
     }
     function stop() { if (el && !el.paused) { try { el.pause(); } catch (e) {} } playing = false; }
     function toggle() { if (playing) { stop(); return false; } return play(); }
+    // iOS pauses the element when the app backgrounds, without firing anything we can rely on.
+    // Trust the element, not our own flag, whenever we come back to the foreground.
+    function syncFromElement() { playing = !!(el && !el.paused && !el.ended); return playing; }
     return { load: load, play: play, stop: stop, toggle: toggle, setDance: setDance,
+             syncFromElement: syncFromElement,
              get playing() { return playing; }, get ready() { return !!url; },
              get label() { return songLabel; }, get fullLink() { return fullLink; } };
   })();
@@ -536,7 +540,7 @@
     $("#p-musicbox").classList.toggle("hide", !Music.label);
     $("#p-fullsong").disabled = !Music.fullLink;
     $("#p-musichint").textContent = Music.ready
-      ? "Loops the 30-second preview · 🍎 opens the full song"
+      ? "Starts on count 1 · loops the 30-second preview · 🍎 opens the full song"
       : "Finding the preview… · 🍎 opens the full song";
   }
   function setPlayerMode(mode) {
@@ -618,7 +622,23 @@
   $("#p-prev").onclick = function () { eng.setStepMode(true); eng.stepPrev(); syncTransportUI(); };
   $("#p-loop").onclick = function () { loopOn = !loopOn; $("#p-loop").classList.toggle("on", loopOn); $("#p-loop").textContent = "🔁 Loop: " + (loopOn ? "On" : "Off"); if (eng.playing) eng.setStopAfter(loopOn ? 0 : 1); };
   // ---- music controls (both modes) ----
-  $("#p-music").onclick = function () { Music.toggle(); syncTransportUI(); };   // synchronous — inside the tap
+  // Music tap. play() is synchronous and inside the gesture on purpose — iOS refuses <audio>.play()
+  // that it can't attribute to a tap, and an await or a fetch first is enough to lose that claim.
+  //
+  // Starting the song ALSO restarts the count transport, so the record and the counts begin
+  // together on count 1 instead of the song landing halfway through a phrase. The two can't be
+  // locked for longer than that — counts are tempo-variable (40–120%) and the record is not — but
+  // they can at least agree on where the dance starts, which is what "start on the right 8-count"
+  // means when you're trying to follow along.
+  $("#p-music").onclick = function () {
+    var nowPlaying = Music.toggle();
+    if (nowPlaying) {
+      eng.ensureAudio();
+      eng.restart();
+      if (!eng.playing) eng.play();
+    }
+    syncTransportUI();
+  };
   $("#p-counts").onclick = function () { countsOn = !countsOn; if (eng) eng.setMute(!countsOn); syncTransportUI(); };
   $("#p-fullsong").onclick = function () { if (Music.fullLink) openExternal(Music.fullLink); };
   $("#p-ghost").onclick = function () { ghostOn = !ghostOn; $("#p-ghost").classList.toggle("on", ghostOn); $("#p-ghost").textContent = "👣 Ghost: " + (ghostOn ? "On" : "Off"); eng.setGhost(ghostOn); };
@@ -685,6 +705,18 @@
   }
 
   /* ---------------- SETTINGS ---------------- */
+  // What the native side reported about the LIVE AVAudioSession. "playback" is the one that plays
+  // at media volume and ignores the ringer switch; anything else (or nothing) means the phone's
+  // silent switch will mute the app, which is the bug this readout exists to catch.
+  function audioSessionLine() {
+    var s = window.__ssAudioSession;
+    if (!s) return "Media volume (set natively at launch). Running in a browser, or the native " +
+                   "layer hasn't reported in yet — on device this line names the live category.";
+    var ok = /playback/i.test(s.category || "");
+    return (ok ? "✓ Media volume — plays with the ringer switch on silent."
+               : "⚠️ Not on media volume — the silent switch will mute the app.") +
+           " Live category: " + esc(String(s.category || "unknown")) + ".";
+  }
   function renderSettings() {
     var v = $("#view-settings"), s = S.settings;
     function toggle(id, on, label, sub) { return '<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div><b style="font-weight:800">' + label + '</b><div class="p">' + sub + '</div></div><button class="chip ' + (on ? 'on' : '') + '" data-tog="' + id + '">' + (on ? 'On' : 'Off') + '</button></div>'; }
@@ -696,6 +728,10 @@
     html += '<div class="card"><b style="font-weight:800">Text size</b><div class="p" style="margin:2px 0 6px">Bigger type across the whole app.</div><input type="range" id="set-text" min="0.9" max="1.35" step="0.05" value="' + (s.textScale || 1) + '" aria-label="Text size"></div>';
     html += '<div class="eyebrow" style="margin:16px 0 8px">About</div>';
     html += '<div class="card"><b style="font-weight:800">Works with no signal</b><div class="p">Every dance, every diagram and the count track are built into the app — nothing to download. Song previews and song links are the only parts that need the internet.</div></div>';
+    // Live audio-session readout. The native layer writes window.__ssAudioSession with the category
+    // iOS ACTUALLY granted (not the one we asked for), so the silent-switch fix can be confirmed on
+    // a real phone without attaching Xcode. See scripts/patch-ios-audio.sh.
+    html += '<div class="card"><b style="font-weight:800">Audio output</b><div class="p">' + audioSessionLine() + '</div></div>';
     html += '<div class="card"><b style="font-weight:800">Privacy</b><div class="p" style="margin:2px 0 9px">No account, no ads, no analytics. Your streak, your shelf and your settings are saved on this phone. Tapping Preview asks Apple\'s public iTunes search for the song — nothing about you goes with it.</div><button class="btn sm" id="set-privacy">Privacy policy ↗</button></div>';
     html += '<div class="card"><b style="font-weight:800">More from Jonathan</b><div class="p" style="margin:2px 0 9px">Art, stories, and what\'s next.</div><button class="btn sm" id="set-web">Visit jonathanscribbles.com ↗</button></div>';
     html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps · learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';
@@ -823,6 +859,30 @@
     } catch (e) {}
   }
   ["pointerdown", "touchend", "mousedown"].forEach(function (ev) { document.addEventListener(ev, primeAudio, { passive: true }); });
+
+  // Background -> foreground. iOS suspends the AudioContext when the app leaves the screen and
+  // does NOT resume it on return; until this existed, coming back from the lock screen or the app
+  // switcher mid-practice left the dance animating in total silence, because the only thing that
+  // ever resumed the context was a tap and the user had no reason to tap anything.
+  //
+  // resume() off-gesture is allowed once the native session is .playback and active (see
+  // scripts/patch-ios-audio.sh); if a given iOS version still refuses, the per-gesture primeAudio
+  // above is the safety net and the next tap fixes it. Nothing is auto-PLAYED here — the transport
+  // is only un-suspended, never started, so we can't surprise anyone with noise.
+  function onForeground() {
+    if (document.visibilityState !== "visible") return;
+    try {
+      var ctx = window.__ssAudioCtx;
+      if (ctx && ctx.state === "suspended") { var p = ctx.resume(); if (p && p.catch) p.catch(function () {}); }
+    } catch (e) {}
+    // iOS pauses <audio> on background and does not resume it. Music.playing would otherwise stay
+    // true and the button would keep claiming "❚❚" over silence.
+    try { Music.syncFromElement(); } catch (e) {}
+    try { if (current === "player") syncTransportUI(); } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", onForeground);
+  window.addEventListener("pageshow", onForeground);
+  window.addEventListener("focus", onForeground);
 
   applyTextScale();
   document.addEventListener("DOMContentLoaded", start);

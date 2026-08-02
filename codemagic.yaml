@@ -77,6 +77,18 @@ workflows:
           find ios -name project.pbxproj -exec sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' {} +
           echo "Patched Info.plist:"; /usr/libexec/PlistBuddy -c "Print :UISupportedInterfaceOrientations" "$PLIST" || true
 
+      - name: ScootSteps native patch — media-volume audio session (.playback)
+        script: |
+          set -e
+          # Without this the app inherits iOS's default .soloAmbient category, which follows the
+          # hardware ringer switch — the count track and song previews both go silent the moment
+          # the phone is flipped to silent. This is the fix for "sound only plays with silent mode
+          # OFF". The script verifies its own work and exits non-zero if the patch did not land,
+          # so a silent no-op fails the build here instead of shipping a mute app.
+          bash scripts/patch-ios-audio.sh .
+          echo "----- AppDelegate.swift audio session block -----"
+          sed -n '/ScootSteps: media-volume/,/end ScootSteps audio session/p' ios/App/App/AppDelegate.swift
+
       - name: Embed the app icon (replace Capacitor default)
         script: |
           # appicon-1024.png lives at the repo root (ASSETS-SPEC.md). Re-embedding on every build
