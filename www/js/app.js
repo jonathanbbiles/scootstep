@@ -223,6 +223,22 @@
     // Result matching lives in js/itunes-match.js so it can be unit-tested against the live API.
     var pick = window.SS_iTunesMatch.pick;
 
+    /* THE BAKED PREVIEWS ARE THE PRIMARY PATH — the runtime search below is now only a fallback.
+       Seeding the cache from www/js/data.previews.js means the ordinary case does NO lookup at
+       all: the tap finds a URL already sitting here and hands it straight to the <audio> element,
+       synchronously, inside the gesture. That is what makes previews work on device. A media
+       element loading from Apple's CDN has always worked from this webview; it was the JSON
+       search that never got through. Songs with no baked entry (a catalog addition on a build
+       where the bake could not resolve it) fall through to the search exactly as before. */
+    (function seedFromBake() {
+      var B = window.SS_PREVIEWS; if (!B) return;
+      Object.keys(B).forEach(function (bk) {
+        var i = bk.indexOf("|"); if (i < 0) return;
+        var e = B[bk]; if (!e || !e.preview) return;
+        cache[bk.slice(0, i) + " " + bk.slice(i + 1)] = { preview: e.preview, view: e.view || null };
+      });
+    })();
+
     /* WHY THIS IS NOT JSONP ANY MORE
        ------------------------------
        The old comment here claimed iTunes Search sends no Access-Control-Allow-Origin, so a script

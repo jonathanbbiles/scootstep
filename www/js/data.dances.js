@@ -19,11 +19,20 @@
     return e;
   }
   const ph = (order, label, s, e) => ({ order, label, counts_start: s, counts_end: e });
-  const song = (title, artist) => ({
-    title, artist,
-    apple: "https://music.apple.com/us/search?term=" + encodeURIComponent(title + " " + artist),
-    spotify: "https://open.spotify.com/search/" + encodeURIComponent(title + " " + artist)
-  });
+  // Songs are facts + links only — never streamed, never bundled. `preview` is Apple's own public
+  // 30-second clip URL, resolved at BUILD time by scripts/bake-previews.mjs and merged here, so the
+  // app never has to search for it on device (where the search does not get through). `apple` is
+  // upgraded from a generic Music search to the EXACT track page when the bake resolved one.
+  const song = (title, artist) => {
+    const baked = ((global.SS_PREVIEWS || {})[title + "|" + artist]) || null;
+    return {
+      title, artist,
+      preview: (baked && baked.preview) || null,
+      apple: (baked && baked.view) ||
+             "https://music.apple.com/us/search?term=" + encodeURIComponent(title + " " + artist),
+      spotify: "https://open.spotify.com/search/" + encodeURIComponent(title + " " + artist)
+    };
+  };
 
   const DANCES = [];
 

@@ -8,7 +8,8 @@
     "sync": "cap sync ios",
     "add:ios": "cap add ios",
     "test": "node audio-session-test.mjs && node preview-service-test.mjs && node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node count-track-test.mjs && node sections-test.mjs && node itunes-match-test.mjs",
-    "test:offline": "node audio-session-test.mjs && node preview-service-test.mjs && node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node count-track-test.mjs && node sections-test.mjs && node itunes-match-test.mjs --offline"
+    "test:offline": "node audio-session-test.mjs && node preview-service-test.mjs && node engine-schema-test.mjs && node validate-dances.mjs && node audio-transport-test.mjs && node count-track-test.mjs && node sections-test.mjs && node itunes-match-test.mjs --offline",
+    "bake:previews": "node scripts/bake-previews.mjs"
   },
   "dependencies": {
     "@capacitor-community/in-app-review": "8.0.0",

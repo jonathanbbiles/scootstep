@@ -55,6 +55,21 @@ workflows:
       - name: Install npm dependencies
         script: npm install
 
+      - name: Bake Apple preview URLs into the bundle
+        script: |
+          set -e
+          # Resolve every catalog song's real 30-second preview URL and exact Apple Music track
+          # page HERE, in Node, where searching works — the runtime iTunes Search lookup does not
+          # get through from the webview on device. The app then plays a baked https URL straight
+          # from an <audio> element and never searches at all.
+          #
+          # Deliberately NOT --check: a flaky Apple response must not fail the build, because the
+          # script keeps the previously committed URLs for anything it cannot resolve. It prints
+          # exactly what it resolved, kept, or missed.
+          node scripts/bake-previews.mjs
+          echo "--- baked entries ---"
+          grep -c '"preview"' www/js/data.previews.js
+
       - name: Add + sync iOS platform (Capacitor)
         script: |
           [ -d ios ] || npx cap add ios

@@ -301,6 +301,9 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
 </nav>
 
 <script src="js/engine.js"></script>
+<!-- Baked at build time by scripts/bake-previews.mjs. MUST load before data.dances.js,
+     which merges each song's real Apple preview URL and exact track page out of it. -->
+<script src="js/data.previews.js"></script>
 <script src="js/data.dances.js"></script>
 <script src="js/data.glossary.js"></script>
 <script src="js/sections.js"></script>

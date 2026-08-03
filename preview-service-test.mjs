@@ -21,6 +21,8 @@ const ok = (name, cond, note = "") => {
 };
 
 const app = readFileSync("www/js/app.js", "utf8");
+const html = readFileSync("www/index.html", "utf8");
+const cm = readFileSync("codemagic.yaml", "utf8");
 const capConfig = JSON.parse(readFileSync("capacitor.config.json", "utf8"));
 const offline = process.argv.includes("--offline");
 
@@ -88,7 +90,7 @@ if (terms) {
 
 console.log("\nNATIVE TRANSPORT\n");
 
-ok("CapacitorHttp is enabled — on device fetch() goes through native URLSession",
+ok("CapacitorHttp is enabled — note this rewrites GETs to the _capacitor_http_interceptor_\n      URL for the webview to fetch; it does NOT send them via native URLSession",
    capConfig.plugins?.CapacitorHttp?.enabled === true);
 // Comments are stripped first: this file explains WHY AbortSignal.timeout is avoided, and a
 // naive grep would match that explanation and call it a usage.
@@ -147,6 +149,58 @@ if (offline) {
        txt.slice(0, 24).replace(/\s+/g, " "));
   } catch (e) {
     ok("JSONP fallback reachable", false, e.message);
+  }
+}
+
+
+console.log("\nBAKED PREVIEWS — the durable fix: no runtime search on the happy path\n");
+
+globalThis.window = globalThis;
+const fsx = await import("node:fs");
+(0, eval)(fsx.readFileSync("www/js/data.previews.js", "utf8"));
+(0, eval)(fsx.readFileSync("www/js/itunes-match.js", "utf8"));
+(0, eval)(fsx.readFileSync("www/js/engine.js", "utf8"));
+(0, eval)(fsx.readFileSync("www/js/data.dances.js", "utf8"));
+
+const catalog = [];
+for (const d of globalThis.SS_DANCES) for (const s of d.songs || []) catalog.push(s);
+const baked = globalThis.SS_PREVIEWS || {};
+
+ok("every song in the catalog has a baked preview URL",
+   catalog.length > 0 && catalog.every(s => !!s.preview),
+   `${catalog.filter(s => !!s.preview).length}/${catalog.length}`);
+ok("every baked preview is https on Apple's own audio CDN",
+   Object.values(baked).every(e => /^https:\/\/audio-ssl\.itunes\.apple\.com\//.test(e.preview)));
+ok("every song deep-links to its EXACT Apple Music track page, not a search",
+   catalog.every(s => /music\.apple\.com\/us\/album\/.*[?&]i=/.test(s.apple)),
+   catalog.filter(s => !/[?&]i=/.test(s.apple)).map(s => s.title).join(", ") || "all exact");
+ok("the Spotify link stays a search — we have no Spotify track ids and do not invent them",
+   catalog.every(s => /open\.spotify\.com\/search\//.test(s.spotify)));
+
+ok("data.previews.js loads BEFORE data.dances.js, which merges it",
+   html.indexOf("js/data.previews.js") < html.indexOf("js/data.dances.js") &&
+   html.includes("js/data.previews.js"));
+ok("the app seeds its cache from the bake, so a tap plays with no lookup",
+   /function seedFromBake/.test(app));
+ok("the runtime search survives as a FALLBACK for songs with no baked entry",
+   /function lookup\(title, artist\)/.test(app) && /fall through to the search/.test(app));
+ok("the bake never blanks a song it failed to resolve",
+   /previous bake retained/.test(fsx.readFileSync("scripts/bake-previews.mjs", "utf8")));
+ok("codemagic bakes previews BEFORE cap sync copies www/ into the bundle",
+   cm.indexOf("bake-previews.mjs") < cm.indexOf("npx cap sync ios"));
+
+if (!offline) {
+  console.log("\nBAKED URLs — do they actually serve audio?\n");
+  for (const title of ["Cotton Eye Joe", "Chattahoochee", "Save a Horse (Ride a Cowboy)"]) {
+    const s = catalog.find(x => x.title === title);
+    try {
+      const r = await fetch(s.preview, { headers: { Range: "bytes=0-2047" },
+                                         signal: AbortSignal.timeout(20000) });
+      const ct = r.headers.get("content-type") || "";
+      ok(`${title} — baked URL serves real audio`,
+         (r.status === 206 || r.status === 200) && /^audio\//.test(ct),
+         `${r.status} ${ct}`);
+    } catch (e) { ok(`${title} — baked URL reachable`, false, e.message); }
   }
 }
 
