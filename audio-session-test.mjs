@@ -148,6 +148,42 @@ ok("the count track is synthesized, not a bundled file",
 ok("every remote audio source is an Apple preview URL resolved at runtime",
    /itunes\.apple\.com\/search/.test(app));
 
+
+console.log("\nKEEPALIVE — the difference between ScootSteps and Tassel\n");
+
+// Tassel (jonathanbbiles/tassel, LIVE) plays audio with `new Audio(URL.createObjectURL(blob))`
+// and has NO audio-session code at all. ScootSteps' count track is Web Audio with no media
+// element anywhere. On iOS an actually-playing HTMLAudioElement is what holds the media route
+// open; a bare AudioContext does not reliably do that. This ports Tassel's mechanism.
+ok("a silent looping HTMLAudioElement holds the media route open (Tassel's mechanism)",
+   /var KeepAlive = \(function/.test(app) && /el\.loop = true/.test(app));
+ok("it is built as a Blob + object URL, the same way Tassel builds its audio",
+   /URL\.createObjectURL\(new Blob\(\[b\], \{ type: "audio\/wav" \}\)\)/.test(app));
+ok("the WAV it loops is silent — samples are never written, so they stay zero",
+   /samples left at zero = silence/.test(app));
+ok("armed from inside a real tap, which is the gesture iOS grants playback against",
+   /function primeAudio[\s\S]{0,900}KeepAlive\.arm\(\)/.test(app));
+ok("held for exactly as long as the player is open, then released",
+   /playerHeld = true; KeepAlive\.hold\(true\)/.test(app) &&
+   /playerHeld = false; KeepAlive\.hold\(false\)/.test(app));
+ok("re-armed on foreground — iOS pauses it on the way out",
+   /KeepAlive\.rearm\(\)/.test(app));
+ok("this is IN ADDITION to .playback, not instead of it (Tassel has no session at all)",
+   /copying Tassel\s+wholesale would have been a downgrade/.test(app));
+
+console.log("\nNETWORK BLAME — \"No connection\" on a live 5G connection\n");
+
+ok("three transports are tried before any network claim is made",
+   /function viaDirect/.test(app) && /window\.CapacitorWebFetch/.test(app) && /jsonpGet\(url\)/.test(app));
+ok("a single rejected fetch no longer means offline",
+   /a rejected fetch proves nothing about the network/.test(app));
+ok("navigator.onLine has the final say on whether to blame the connection",
+   /navigator\.onLine !== false/.test(app));
+ok("an all-transports-failed case with a live connection says so honestly",
+   /the connection looks fine, so it's them/.test(app));
+ok("the CapacitorHttp GET interceptor is named as a suspect, not assumed to work",
+   /_capacitor_http_interceptor_/.test(app));
+
 console.log("\nON-DEVICE VERIFICATION SURFACE\n");
 ok("Settings shows the live audio category so the fix is checkable without Xcode",
    /function audioSessionLine/.test(app) && /Audio output/.test(app));

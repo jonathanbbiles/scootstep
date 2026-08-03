@@ -249,14 +249,16 @@
     var TIMEOUT_MS = 9000;
 
     // AbortSignal.timeout() is iOS 16+; build it by hand so older phones aren't left without one.
-    function httpGet(url) {
+    function httpGet(url, impl) {
+      var doFetch = impl || (typeof fetch === "function" ? fetch : null);
+      if (!doFetch) return Promise.resolve({ reason: "no-fetch" });
       return new Promise(function (done) {
         var ctl = null, killed = false;
         try { ctl = new AbortController(); } catch (e) {}
         var to = setTimeout(function () { killed = true; if (ctl) { try { ctl.abort(); } catch (e) {} } done({ reason: "timeout" }); }, TIMEOUT_MS);
         var opts = ctl ? { signal: ctl.signal } : {};
         var f;
-        try { f = fetch(url, opts); } catch (e) { clearTimeout(to); done({ reason: "no-fetch" }); return; }
+        try { f = doFetch(url, opts); } catch (e) { clearTimeout(to); done({ reason: "no-fetch" }); return; }
         if (!f || !f.then) { clearTimeout(to); done({ reason: "no-fetch" }); return; }
         f.then(function (r) {
           if (killed) return;
@@ -271,7 +273,7 @@
         }, function () {
           if (killed) return;
           clearTimeout(to);
-          done({ reason: "offline" });          // TypeError from fetch = no route to host
+          done({ reason: "failed" });           // a rejected fetch proves nothing about the network
         });
       });
     }
@@ -286,17 +288,47 @@
         function cleanup() { try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); clearTimeout(to); }
         window[cb] = function (d) { finish({ data: d }); };
         var to = setTimeout(function () { finish({ reason: "timeout" }); }, TIMEOUT_MS);
-        s.onerror = function () { finish({ reason: "offline" }); };
+        s.onerror = function () { finish({ reason: "failed" }); };
         s.src = url.replace("&term=", "&callback=" + cb + "&term=");
         document.head.appendChild(s);
       });
     }
 
+    /* THREE TRANSPORTS, TRIED IN ORDER — and "offline" is no longer the default excuse.
+       Jonathan saw "No connection" on a live 5G connection. That message came from this code
+       treating ANY rejected fetch as "no route to host", and with CapacitorHttp enabled a GET is
+       not a plain fetch at all: the native bridge rewrites it to
+       capacitor://localhost/_capacitor_http_interceptor_?u=… and lets the webview fetch THAT.
+       If that interceptor path fails for any reason the promise rejects exactly like a dead
+       network does, and the old code confidently blamed the network.
+
+       So: try the patched fetch, then the ORIGINAL unpatched fetch that Capacitor stashes on
+       window.CapacitorWebFetch (straight to Apple, no interceptor), then JSONP (a script tag,
+       which no CORS policy and no interceptor can touch). Only if all three fail is this a
+       network problem, and even then navigator.onLine gets the final say. */
     function search(term) {
       var url = ENDPOINT + encodeURIComponent(term);
-      return httpGet(url).then(function (res) {
-        if (res.reason === "no-fetch") return jsonpGet(url);
-        return res;
+      var tried = [];
+      function viaDirect() {                                 // the pre-patch fetch, if it exists
+        var raw = window.CapacitorWebFetch;
+        if (typeof raw !== "function") return Promise.resolve({ reason: "no-fetch" });
+        return httpGet(url, raw);
+      }
+      return httpGet(url).then(function (a) {
+        if (a.data || a.reason === "busy" || a.reason === "http") return a;   // a real answer
+        tried.push("proxy:" + a.reason);
+        return viaDirect().then(function (b) {
+          if (b.data || b.reason === "busy") return b;
+          tried.push("direct:" + b.reason);
+          return jsonpGet(url).then(function (c) {
+            if (c.data) return c;
+            tried.push("jsonp:" + c.reason);
+            // Every transport failed. Now — and only now — is it fair to talk about the network,
+            // and navigator.onLine decides, not a rejected promise.
+            var online = (typeof navigator === "undefined") || navigator.onLine !== false;
+            return { reason: online ? "unreachable" : "offline", tried: tried };
+          });
+        });
       });
     }
 
@@ -309,7 +341,7 @@
         queue.push(function () {
           running++;
           fn().then(function (v) { running--; pump(); done(v); },
-                    function () { running--; pump(); done({ reason: "offline" }); });
+                    function () { running--; pump(); done({ reason: "unreachable" }); });
         });
         pump();
       });
@@ -328,7 +360,7 @@
     }
 
     function lookup(title, artist) {                    // -> {hit} | {reason}
-      var list = terms(title, artist), i = 0, lastReason = "offline";
+      var list = terms(title, artist), i = 0, lastReason = "unreachable";
       function step() {
         if (i >= list.length) return Promise.resolve({ reason: lastReason === "no-match" ? "no-match" : lastReason });
         var term = list[i++];
@@ -339,7 +371,7 @@
             lastReason = "no-match";
             return step();
           }
-          lastReason = res.reason || "offline";
+          lastReason = res.reason || "unreachable";
           // A transport failure won't be fixed by rewording the query — stop and say so.
           return (lastReason === "no-match") ? step() : { reason: lastReason, status: res.status };
         });
@@ -391,6 +423,7 @@
                                          : "Apple has no 30-sec clip for this one.";
         case "busy":      return "Apple's preview service is rate-limiting us — give it a moment, then tap again.";
         case "offline":   return "No connection — previews need the internet. The dance and the count track don't.";
+        case "unreachable": return "Couldn't reach Apple's preview service — the connection looks fine, so it's them. Tap to retry.";
         case "timeout":   return "The preview service didn't answer in time — tap to retry.";
         default:          return "Couldn't reach the preview service — tap to retry.";
       }
@@ -551,7 +584,7 @@
   function setMastery(id, m) { if (m === "want") { S.want[id] = true; delete S.mastery[id]; } else { S.mastery[id] = m; delete S.want[id]; } save(); }
 
   /* ---------------- PLAYER ---------------- */
-  var eng = null, playerDance = null, playerMode = "watch";
+  var eng = null, playerDance = null, playerMode = "watch", playerHeld = false;
   var sectionIdx = 0, ghostOn = true, loopOn = true, watchLoop = true, chunkPlaying = false, sessionCompleted = false, countsOn = true;
   function ensureEngine() {
     if (eng) return eng;
@@ -615,6 +648,10 @@
     // animating and holding the shared audio context for nothing
     try { if (heroEngine) heroEngine.pause(); } catch (e) {}
     playerDance = d; playerMode = (mode === "learn") ? "learn" : "watch"; sectionIdx = 0; sessionCompleted = false; chunkPlaying = false;
+    // Hold the media route open for as long as the player is up. This runs inside the tap that
+    // opened the player, which is the gesture iOS wants; from here the count track has a live
+    // output to land on instead of a context that claims to be running and makes no sound.
+    if (!playerHeld) { playerHeld = true; KeepAlive.hold(true); }
     $("#player").classList.add("on");
     $("#p-name").textContent = d.name + (d.glossary ? " · basic" : "");
     $("#p-credit").textContent = d.glossary ? (d.definition ? d.definition.slice(0, 60) + "…" : "") : d.choreographer_credit;
@@ -640,6 +677,7 @@
     if (eng) eng.pause();
     Music.stop();
     chunkPlaying = false;
+    if (playerHeld) { playerHeld = false; KeepAlive.hold(false); }
     $("#player").classList.remove("on");
     // the detail hero was paused when the player opened — bring it back, or the screen behind
     // the player is left frozen mid-step
@@ -971,6 +1009,63 @@
   // the app is backgrounded or audio goes idle; the old one-shot latch meant that after the first
   // suspension nothing ever resumed it again, so the count track went silent for the rest of the
   // session. Creating the context is one-shot; resuming it is not.
+  /* ---- KEEPALIVE: the one thing Tassel does that this app did not ----------------------------
+     Tassel plays audio with `new Audio(URL.createObjectURL(blob))` — an ordinary HTMLAudioElement
+     with a real file in it — and no audio-session code at all. ScootSteps' count track is Web
+     Audio: oscillators scheduled on the AudioContext clock, and NO media element anywhere.
+
+     On iOS those two are not equivalent. An HTMLAudioElement that is actually playing is what
+     makes WKWebView hold a live media playback route open. A bare AudioContext does not reliably
+     do that: it is suspended aggressively, it can come back from resume() in "running" state and
+     still produce no sound, and there is nothing telling the system this app is playing media.
+     That is the difference between "the count track works sometimes" and "the count track works".
+
+     So this plays a silent looping WAV, built the same way Tassel builds its audio — a Blob and an
+     object URL — for exactly as long as the count track needs to be audible. It is inaudible, it
+     costs nothing, and it keeps the route open so the oscillators land on a live output.
+
+     This is IN ADDITION to the .playback session (scripts/patch-ios-audio.sh), which Tassel does
+     not have at all — that is what stops the ringer switch muting us, and it is why copying Tassel
+     wholesale would have been a downgrade. */
+  var KeepAlive = (function () {
+    var el = null, url = null, held = 0;
+    function silentWavUrl() {
+      if (url) return url;
+      var rate = 8000, secs = 0.25, n = Math.floor(rate * secs), bytes = 44 + n * 2;
+      var b = new ArrayBuffer(bytes), v = new DataView(b), i;
+      function str(off, s) { for (i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); }
+      str(0, "RIFF"); v.setUint32(4, bytes - 8, true); str(8, "WAVEfmt ");
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, "data"); v.setUint32(40, n * 2, true);          // samples left at zero = silence
+      try { url = URL.createObjectURL(new Blob([b], { type: "audio/wav" })); } catch (e) { url = null; }
+      return url;
+    }
+    function ensure() {
+      if (el) return el;
+      var u = silentWavUrl(); if (!u) return null;
+      el = new Audio(u); el.loop = true; el.playsInline = true; el.preload = "auto"; el.volume = 0.01;
+      try { el.setAttribute("playsinline", ""); el.setAttribute("webkit-playsinline", ""); } catch (e) {}
+      return el;
+    }
+    // Called from inside a real tap. iOS only grants playback it can attribute to a gesture, and
+    // this is the grant the whole count track then rides on.
+    function arm() {
+      var a = ensure(); if (!a) return;
+      if (a.paused) { var p = a.play(); if (p && p.catch) p.catch(function () {}); }
+    }
+    function hold(on) {
+      held = Math.max(0, held + (on ? 1 : -1));
+      var a = ensure(); if (!a) return;
+      if (held > 0) { if (a.paused) { var p = a.play(); if (p && p.catch) p.catch(function () {}); } }
+      else { try { a.pause(); } catch (e) {} }
+    }
+    function rearm() { if (held > 0) arm(); }              // after a background trip
+    return { arm: arm, hold: hold, rearm: rearm, get active() { return !!(el && !el.paused); } };
+  })();
+  window.SS_KeepAlive = KeepAlive;                          // exposed for the headless test
+
   function primeAudio() {
     try {
       var C = window.AudioContext || window.webkitAudioContext;
@@ -980,6 +1075,7 @@
       if (ctx.state === "suspended") ctx.resume();
       var b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0);
     } catch (e) {}
+    try { KeepAlive.arm(); } catch (e) {}                   // same gesture unlocks the media route
   }
   ["pointerdown", "touchend", "mousedown"].forEach(function (ev) { document.addEventListener(ev, primeAudio, { passive: true }); });
 
@@ -998,6 +1094,9 @@
       var ctx = window.__ssAudioCtx;
       if (ctx && ctx.state === "suspended") { var p = ctx.resume(); if (p && p.catch) p.catch(function () {}); }
     } catch (e) {}
+    // The keepalive element is paused by iOS on the way out too — without re-arming it the count
+    // track comes back to a dead route, which is the "worked, then stopped working" shape.
+    try { KeepAlive.rearm(); } catch (e) {}
     // iOS pauses <audio> on background and does not resume it. Music.playing would otherwise stay
     // true and the button would keep claiming "❚❚" over silence.
     try { Music.syncFromElement(); } catch (e) {}
