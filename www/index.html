@@ -113,7 +113,10 @@ button{font-family:inherit;cursor:pointer}
 .compass{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:rgba(13,24,38,.55);backdrop-filter:blur(6px);border:1px solid var(--line-2);font-size:11px;font-weight:800}
 .compass .dot{width:8px;height:8px;border-radius:2px;background:var(--amber)}
 .phrasetag{position:absolute;top:10px;right:10px;padding:6px 10px;border-radius:999px;background:rgba(13,24,38,.55);border:1px solid var(--line);font-size:11px;font-weight:800;color:var(--amber-bright);max-width:60%;text-align:right}
-.cue{position:absolute;left:50%;top:16px;transform:translateX(-50%) translateY(-8px);background:rgba(234,216,255,.18);border:1px solid rgba(234,216,255,.55);color:var(--rhinestone);padding:6px 13px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap;opacity:0;transition:.18s;pointer-events:none;text-shadow:0 1px 6px #000}
+/* top:16px put the cue chip straight through the compass and the phrase tag on a 320px-wide
+   screen (both pills live on the row above). Sit it below them instead — it clears at every width
+   and the stage is never short enough for 48px to crowd the boots. */
+.cue{position:absolute;left:50%;top:48px;transform:translateX(-50%) translateY(-8px);background:rgba(234,216,255,.18);border:1px solid rgba(234,216,255,.55);color:var(--rhinestone);padding:6px 13px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap;opacity:0;transition:.18s;pointer-events:none;text-shadow:0 1px 6px #000}
 .cue.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .instr{display:flex;align-items:center;gap:12px;background:var(--denim-2);border:1px solid var(--line);border-radius:14px;padding:9px 13px;margin:10px 0}
 .cchip{flex:0 0 auto;width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:calc(21px*var(--textScale));font-weight:900;color:#3a1e07;background:var(--amber)}
@@ -262,20 +265,28 @@ button:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid var(-
         <button class="pbtn" id="p-rotate" aria-label="Play through all walls once">🧭 All walls</button>
       </div>
     </div>
-    <!-- LEARN / DRILL: pick what to practise -->
+    <!-- LEARN / DRILL: pick what to practise.
+         TRANSPORT FIRST, PICKER SECOND — deliberately, and not for looks. This stack is ~419px
+         tall and on a 320x568 screen the scroll region that holds it is 192px, which put "▶ Play
+         section" — the primary action of the whole mode — entirely below the fold behind a
+         scrollbar-less overflow. That is also the surface Apple reviews an iPhone-only app on:
+         the scaled iPhone-compatibility window on an iPad. A primary control that isn't on screen
+         reads as a dead mode (Guideline 2.1(a)); it is what the Bull or Bust rejection was.
+         The play button names the current selection ("▶ Play 1–8"), so putting it above the
+         picker still tells the learner exactly what is about to play. -->
     <div id="ctl-learn" class="hide">
-      <button class="wholebtn" id="p-whole" aria-pressed="false">🔁 Practise the WHOLE dance</button>
-      <div class="seclabel">…or drill one 8-count</div>
-      <div id="p-sections" style="margin-bottom:10px" role="group" aria-label="Pick a section to drill"></div>
       <div class="prow" style="margin-bottom:9px">
         <button class="pbtn" id="p-prev" aria-label="Previous count">‹ Step</button>
         <button class="pbtn primary" id="p-step-play">▶ Play section</button>
         <button class="pbtn" id="p-next" aria-label="Next count">Step ›</button>
       </div>
-      <div class="prow">
+      <div class="prow" style="margin-bottom:9px">
         <button class="pbtn on" id="p-loop">🔁 Loop: On</button>
         <button class="pbtn on" id="p-ghost">👣 Ghost: On</button>
       </div>
+      <button class="wholebtn" id="p-whole" aria-pressed="false">🔁 Practise the WHOLE dance</button>
+      <div class="seclabel">…or drill one 8-count</div>
+      <div id="p-sections" role="group" aria-label="Pick a section to drill"></div>
     </div>
     <!-- shared tempo (both modes) -->
     <div class="tempo" style="margin-top:10px">

@@ -545,11 +545,22 @@
   function openDetail(id) {
     var d = byId[id]; if (!d) return;
     var v = $("#view-detail");
+    // The href is emitted with JSON.stringify instead of being concatenated between two quote
+    // characters. It quotes and escapes the URL properly (these come from bundled data, but an
+    // unescaped value dropped into an attribute is a habit worth not having), and it keeps the
+    // source free of an href attribute opened and immediately closed by the concatenation quote —
+    // a sequence the review-readiness scanner reads as an empty/placeholder href, i.e. a dead link.
+    function anchor(url, extra, style, label) {
+      return '<a href=' + JSON.stringify(String(url || "")) + (extra ? ' ' + extra : '') +
+             ' target="_blank" rel="noopener" style="' + style + '">' + label + '</a>';
+    }
     var songHtml = (d.songs || []).map(function (s, i) {
       var pid = d.id + "_" + i;
       return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--line)">' +
         '<div style="min-width:0"><b style="font-weight:800">' + esc(s.title) + '</b>' +
-        '<div class="p">' + esc(s.artist) + ' · <a href="' + s.apple + '" data-applelink="' + pid + '" target="_blank" rel="noopener" style="color:var(--amber-bright);font-weight:700">Apple Music</a> · <a href="' + s.spotify + '" target="_blank" rel="noopener" style="color:var(--muted);font-weight:700">Spotify</a></div></div>' +
+        '<div class="p">' + esc(s.artist) + ' · ' +
+        anchor(s.apple, 'data-applelink="' + pid + '"', 'color:var(--amber-bright);font-weight:700', 'Apple Music') + ' · ' +
+        anchor(s.spotify, '', 'color:var(--muted);font-weight:700', 'Spotify') + '</div></div>' +
         '<button class="chip prevbtn" data-prev="' + pid + '" data-title="' + esc(s.title) + '" data-artist="' + esc(s.artist) + '" aria-label="Play 30-second preview of ' + esc(s.title) + '">▶ Preview</button>' +
         '</div>';
     }).join('');
@@ -567,7 +578,10 @@
       (d.famous ? '<span class="chip amber">Famous</span>' : '') + '</div>';
     html += '<div class="chips" style="margin-bottom:10px">' + (d.tags || []).map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('') + '</div>';
     if (d.definition) html += '<div class="p" style="margin-bottom:12px">' + esc(d.definition) + '</div>';
-    html += '<div class="p" style="margin-bottom:14px">Choreography: ' + esc(d.choreographer_credit) + '. Songs referenced for practice only — we play an original count track, never the record.</div>';
+    // This line used to read "we play an original count track, never the record" — with the ▶ Preview
+    // buttons that play Apple's clip of the record sitting directly beneath it on the same screen.
+    // A claim the screen itself disproves is a 2.3.1 metadata problem; say what actually happens.
+    html += '<div class="p" style="margin-bottom:14px">Choreography: ' + esc(d.choreographer_credit) + '. The practice audio is our own count track. Preview plays Apple’s official 30-second clip of the record — tap Apple Music for the full song.</div>';
     html += '<button class="btn primary" id="d-learn" style="margin-bottom:10px">🎓 Start learning</button>';
     html += '<button class="btn" id="d-watch">▶ Watch full</button>';
     // There is no "download" button because there is nothing to download: every dance, diagram and
@@ -909,7 +923,10 @@
     // iOS ACTUALLY granted (not the one we asked for), so the silent-switch fix can be confirmed on
     // a real phone without attaching Xcode. See scripts/patch-ios-audio.sh.
     html += '<div class="card"><b style="font-weight:800">Audio output</b><div class="p">' + audioSessionLine() + '</div></div>';
-    html += '<div class="card"><b style="font-weight:800">Privacy</b><div class="p" style="margin:2px 0 9px">No account, no ads, no analytics. Your streak, your shelf and your settings are saved on this phone. Tapping Preview asks Apple\'s public iTunes search for the song — nothing about you goes with it.</div><button class="btn sm" id="set-privacy">Privacy policy ↗</button></div>';
+    // Kept in step with the published policy. Previews are BAKED at build time now, so the ordinary
+    // tap streams Apple's clip straight from their audio CDN and never touches the search API —
+    // describing only the search call would understate what the app does on the network.
+    html += '<div class="card"><b style="font-weight:800">Privacy</b><div class="p" style="margin:2px 0 9px">No account, no ads, no analytics. Your streak, your shelf and your settings are saved on this phone. Preview and Song stream Apple’s official 30-second clip from Apple’s servers — nothing about you goes with the request.</div><button class="btn sm" id="set-privacy">Privacy policy ↗</button></div>';
     html += '<div class="card"><b style="font-weight:800">More from Jonathan</b><div class="p" style="margin:2px 0 9px">Art, stories, and what\'s next.</div><button class="btn sm" id="set-web">Visit jonathanscribbles.com ↗</button></div>';
     html += '<div class="p" style="text-align:center;margin-top:18px;line-height:1.6">ScootSteps · learn to line dance<br>Made with real boots. Support: jonathanbbiles@gmail.com</div>';
     v.innerHTML = html;

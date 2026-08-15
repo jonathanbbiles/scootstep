@@ -72,7 +72,30 @@ workflows:
 
       - name: Add + sync iOS platform (Capacitor)
         script: |
+          set -e
           [ -d ios ] || npx cap add ios
+
+          # ---- ITMS-90068: force iOS 15 BETWEEN `cap add` and `cap sync` --------------------
+          # Capacitor 8's template happens to emit 15.0 today, but nothing in this build ever
+          # asserted it — a template bump (or a plugin dragging the target down) would sail
+          # through and come back as an ITMS-90068 rejection AFTER upload, which costs a whole
+          # submit cycle. Pin it here, where `cap sync` will still propagate it to the SPM
+          # package and the plugin targets, and fail the build if the pin does not take.
+          PBX=ios/App/App.xcodeproj/project.pbxproj
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX"
+          SPM=ios/App/CapApp-SPM/Package.swift
+          [ -f "$SPM" ] && sed -i '' 's/\.iOS(\.v[0-9]*)/.iOS(.v15)/g' "$SPM"
+          echo "--- deployment targets after pin ---"
+          grep -o "IPHONEOS_DEPLOYMENT_TARGET = [^;]*;" "$PBX" | sort -u
+          [ -f "$SPM" ] && grep -o "platforms: \[[^]]*\]" "$SPM" || true
+          # Verify: every occurrence must be 15.0, and none may be lower.
+          if grep -o "IPHONEOS_DEPLOYMENT_TARGET = [^;]*;" "$PBX" | grep -qv "= 15.0;"; then
+            echo "ITMS-90068 GUARD FAILED: a deployment target other than 15.0 survived in $PBX" >&2
+            grep -n "IPHONEOS_DEPLOYMENT_TARGET" "$PBX" >&2
+            exit 1
+          fi
+          echo "==> deployment target pinned to iOS 15.0 (ITMS-90068 guard passed)"
+
           npx cap sync ios          # copies www/ -> ios/App/App/public/ (the SHIPPED bundle)
 
       - name: ScootSteps native patches — iPhone-only + portrait lock
@@ -103,6 +126,18 @@ workflows:
           bash scripts/patch-ios-audio.sh .
           echo "----- AppDelegate.swift audio session block -----"
           sed -n '/ScootSteps: media-volume/,/end ScootSteps audio session/p' ios/App/App/AppDelegate.swift
+
+      - name: ScootSteps native patch — app-target privacy manifest
+        script: |
+          set -e
+          # Capacitor's frameworks carry their own PrivacyInfo.xcprivacy; the APP target had none.
+          # This writes one declaring no tracking, no collected data types and no required-reason
+          # APIs — the machine-readable twin of the "Data Not Collected" answer in App Store
+          # Connect. The script adds it to the Resources build phase (a manifest that exists on
+          # disk but is not a target resource never reaches the .app) and self-verifies.
+          bash scripts/patch-ios-privacy-manifest.sh .
+          echo "----- PrivacyInfo.xcprivacy -----"
+          cat ios/App/App/PrivacyInfo.xcprivacy
 
       - name: Embed the app icon (replace Capacitor default)
         script: |

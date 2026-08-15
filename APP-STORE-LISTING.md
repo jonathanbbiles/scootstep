@@ -45,13 +45,18 @@ WHAT'S INSIDE
 • Wall compass + mirror view (taught like a real class)
 • The dances work with no signal — every step is built in, nothing to download
 • Grapevine, jazz box, shuffle, pivot and more, broken down slow
+• Hear the real song too — Apple's official 30-second preview, one tap from the full track
 
-No confusing videos. No copyrighted music. Just you, two boots, and a very good Friday night.
+No confusing videos. Just you, two boots, and a very good Friday night.
 ```
 
 ## App Review notes (guards against a 4.2 "minimum functionality" flag)
 ```
-ScootSteps teaches line dancing via an original in-house animation engine that renders each dance from structured step data (not videos). To review: open any dance → "Start learning" → step through the 8-count chunks, or "Watch full" and drag the tempo slider. Every dance, diagram and the count track are bundled in the app and work with no network. No login required. No copyrighted audio — the app plays a synthesized count track only; song titles are references, and the optional "Preview" button plays Apple's own 30-second iTunes preview (those buttons are the only feature that needs the internet, and they fail gracefully offline). This build contains NO in-app purchases: no paywall, no products, no Restore control.
+ScootSteps teaches line dancing via an original in-house animation engine that renders each dance from structured step data (not videos). To review: open any dance → "Start learning" → step through the 8-count chunks, or "Watch full" and drag the tempo slider. Every dance, diagram and the count track are bundled in the app and work with no network. No login required.
+
+AUDIO: two separate layers, and the distinction matters. (1) The practice audio ScootSteps generates is an ORIGINAL count track, synthesized on device — no recording is bundled, hosted or copied. (2) The optional "Preview" button on a dance page and the "Song" button in the player stream Apple's OWN official 30-second preview of the commercial recording, straight from Apple's servers, and every song carries a one-tap link that opens the full track in the user's music service. Those buttons are the only feature that needs the internet and they fail gracefully offline. ScootSteps is not affiliated with or endorsed by any music service, artist or label; song and artist names identify the recording each dance is danced to.
+
+This build contains NO in-app purchases: no paywall, no products, no Restore control.
 ```
 
 ## Screenshots (iPhone 6.7" = 1290×2796; 6.5" = 1284×2778). iPhone-only → NO iPad set required.
