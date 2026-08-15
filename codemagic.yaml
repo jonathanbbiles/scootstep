@@ -134,15 +134,27 @@ workflows:
 
       - name: ScootSteps native patch — app-target privacy manifest
         script: |
-          set -e
           # Capacitor's frameworks carry their own PrivacyInfo.xcprivacy; the APP target had none.
           # This writes one declaring no tracking, no collected data types and no required-reason
           # APIs — the machine-readable twin of the "Data Not Collected" answer in App Store
           # Connect. The script adds it to the Resources build phase (a manifest that exists on
           # disk but is not a target resource never reaches the .app) and self-verifies.
-          bash scripts/patch-ios-privacy-manifest.sh .
-          echo "----- PrivacyInfo.xcprivacy -----"
-          cat ios/App/App/PrivacyInfo.xcprivacy
+          #
+          # NON-FATAL on purpose (matches Moodie). Apple requires a privacy manifest from
+          # third-party SDKs and for required-reason API use; the App target itself calls no
+          # required-reason API — the ones Capacitor uses ship inside Capacitor's own frameworks,
+          # which carry their own manifests. So this file is a belt-and-braces accurate
+          # declaration, not a submission blocker, and it must never be the reason an otherwise
+          # shippable build dies. The script mutates project.pbxproj via a Ruby/Python round-trip;
+          # if a toolchain bump ever breaks that, the correct outcome is a loud warning and a
+          # shipped build, not a red build over a file Apple is not going to ask this target for.
+          if bash scripts/patch-ios-privacy-manifest.sh .; then
+            echo "----- PrivacyInfo.xcprivacy -----"
+            cat ios/App/App/PrivacyInfo.xcprivacy
+          else
+            echo "WARNING: privacy-manifest patch failed (rc=$?) — continuing without it." >&2
+            echo "WARNING: this is NOT a submission blocker for this target; see the note above." >&2
+          fi
 
       - name: Embed the app icon (replace Capacitor default)
         script: |
@@ -156,15 +168,69 @@ workflows:
           JSON
           echo "Embedded app icon:"; ls -la "$ICONSET"
 
-      - name: Set build number + export-compliance flag
+      - name: Set marketing version + build number + export-compliance flag
         script: |
-          LATEST=$(app-store-connect get-latest-testflight-build-number "$ASC_APP_ID" 2>/dev/null || echo 0)
-          NEXT=$(( LATEST + 1 ))
+          set -e
           PLIST=ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT" "$PLIST"
+
+          # Marketing version is pinned to the string App Store Connect actually holds — "1.0",
+          # not "1.0.0". A build stamped 1.0.0 uploads and processes fine and then simply never
+          # appears in the build picker for ASC version 1.0, because it cannot attach to a
+          # version string it does not match. (Moodie lost a cycle to exactly this.)
+          MARKETING_VERSION="1.0"
+
+          # ---- WHY THIS IS A UTC TIMESTAMP AND NOT "latest + 1" -----------------------------
+          # This step used to read:
+          #     LATEST=$(app-store-connect get-latest-testflight-build-number "$ASC_APP_ID" \
+          #                2>/dev/null || echo 0)
+          #     NEXT=$(( LATEST + 1 ))
+          # That is the bug that kept every ScootSteps build out of TestFlight while Codemagic
+          # reported a green build, and it is a closed loop, not a flake:
+          #   * get-latest-testflight-build-number reports the highest build VISIBLE IN
+          #     TESTFLIGHT. App Store Connect, however, requires an uploaded build to exceed the
+          #     highest number EVER used for that version — including builds that failed
+          #     processing and are therefore invisible to that query. With stderr swallowed by
+          #     2>/dev/null, any failure of the call also silently collapses to LATEST=0.
+          #   * So the build stamps 1, uploads, and ASC rejects it ASYNCHRONOUSLY — after the
+          #     upload completes — with ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE. Nothing lands
+          #     in TestFlight. The next build asks "what is the latest?", is told 0 again,
+          #     stamps 1 again, and collides again. Forever.
+          #   * The upload itself genuinely succeeds every time, which is why the Publishing
+          #     step burns a real ~70 seconds and still goes green: the rejection happens on
+          #     Apple's side after Codemagic has handed the binary over and stopped watching.
+          #     A green Codemagic build is NOT evidence that a build reached TestFlight.
+          # A UTC timestamp is monotonic by construction, needs no network round-trip to work
+          # out "the last one plus one", and can never collide with a number this app has
+          # already burned. Slow Burn hit the same DUPLICATE error; Moodie ships on this fix.
+          BUILD_NUMBER="$(date -u +%Y%m%d%H%M)"
+
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $MARKETING_VERSION" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST"
           # No custom crypto -> skip the per-build export-compliance prompt.
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST"
+
+          # Read the values back OUT of the plist rather than echoing the shell variables — the
+          # point is to prove what the archive will actually carry, not what we intended. An
+          # unexpanded $(CURRENT_PROJECT_VERSION) here means PlistBuddy silently no-opped.
+          STAMPED_V="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST")"
+          STAMPED_B="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST")"
+          echo "CFBundleShortVersionString = $STAMPED_V"
+          echo "CFBundleVersion            = $STAMPED_B"
+          case "$STAMPED_B" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+            *) echo "BUILD NUMBER GUARD FAILED: '$STAMPED_B' is not a 12-digit UTC timestamp." >&2
+               echo "Shipping a non-monotonic build number is what caused the TestFlight" >&2
+               echo "DUPLICATE deadlock. Failing here instead of uploading a doomed binary." >&2
+               exit 1 ;;
+          esac
+          [ "$STAMPED_V" = "$MARKETING_VERSION" ] || {
+            echo "VERSION GUARD FAILED: plist holds '$STAMPED_V', expected '$MARKETING_VERSION'." >&2
+            exit 1
+          }
+          echo "==> stamped $STAMPED_V ($STAMPED_B)"
 
       - name: Set up code signing — apply the stored profile + the ONE shared cert (no mint, no revoke)
         script: |
