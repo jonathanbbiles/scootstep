@@ -83,11 +83,16 @@ workflows:
           # package and the plugin targets, and fail the build if the pin does not take.
           PBX=ios/App/App.xcodeproj/project.pbxproj
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX"
+          # NB: written as a full if-block, NOT `[ -f x ] && sed ...`. Under `set -e` that
+          # one-liner exits the whole step with status 1 whenever the file is absent — the test
+          # failing IS the step failing. A missing SPM package must skip this, not kill the build.
           SPM=ios/App/CapApp-SPM/Package.swift
-          [ -f "$SPM" ] && sed -i '' 's/\.iOS(\.v[0-9]*)/.iOS(.v15)/g' "$SPM"
+          if [ -f "$SPM" ]; then
+            sed -i '' 's/\.iOS(\.v[0-9]*)/.iOS(.v15)/g' "$SPM"
+          fi
           echo "--- deployment targets after pin ---"
           grep -o "IPHONEOS_DEPLOYMENT_TARGET = [^;]*;" "$PBX" | sort -u
-          [ -f "$SPM" ] && grep -o "platforms: \[[^]]*\]" "$SPM" || true
+          if [ -f "$SPM" ]; then grep -o "platforms: \[[^]]*\]" "$SPM" || true; fi
           # Verify: every occurrence must be 15.0, and none may be lower.
           if grep -o "IPHONEOS_DEPLOYMENT_TARGET = [^;]*;" "$PBX" | grep -qv "= 15.0;"; then
             echo "ITMS-90068 GUARD FAILED: a deployment target other than 15.0 survived in $PBX" >&2
