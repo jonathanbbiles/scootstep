@@ -465,16 +465,48 @@ workflows:
           [ "$ACTUAL" = "$ANDROID_UPLOAD_CERT_SHA256" ] || {
             echo "SIGNING GUARD FAILED: AAB signed by an unexpected certificate." >&2; exit 1; }
 
-          # 3. The manifest inside the bundle really carries the identifiers Play
-          #    will key the listing on, and a versionCode Play will actually accept.
+          # 3. The resources really shipped. Every patch step self-verifies against the
+          #    working tree, but the tree is not the artifact: an aaptOptions rule or a
+          #    resource-shrinking setting can drop a file between the tree and the
+          #    bundle, and the placeholder-icon failure mode is invisible until someone
+          #    installs the app. Assert against the AAB itself.
+          ICONS="$(unzip -Z1 "$AAB" 'base/res/mipmap*' | wc -l | tr -d ' ')"
+          echo "launcher icon entries in bundle: $ICONS"
+          [ "$ICONS" -ge 10 ] || {
+            echo "RESOURCE GUARD FAILED: only $ICONS mipmap entries in the AAB." >&2
+            unzip -Z1 "$AAB" 'base/res/*' | head -40 >&2; exit 1; }
+          unzip -Z1 "$AAB" 'base/res/*splash*' | head -3
+
+          # 4. The manifest inside the bundle carries the identifiers Play keys the
+          #    listing on, plus a versionCode Play will actually accept. Read them from
+          #    the ARTIFACT, not from build.gradle — build.gradle is what we asked for,
+          #    the bundle is what we got.
           BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)"
-          "$BT/aapt2" dump badging "$AAB" 2>/dev/null | head -5 || \
-            unzip -p "$AAB" BUNDLE-METADATA/com.android.tools.build.gradle/app-metadata.properties || true
+          BADGING=""
+          for try in "dump badging $AAB" "dump xmltree --file base/manifest/AndroidManifest.xml $AAB"; do
+            BADGING="$("$BT/aapt2" $try 2>/dev/null || true)"
+            [ -n "$BADGING" ] && break
+          done
+          [ -n "$BADGING" ] || {
+            echo "MANIFEST GUARD FAILED: aapt2 could not read the bundle manifest." >&2; exit 1; }
+          echo "$BADGING" | head -20
+
+          echo "$BADGING" | grep -q "$PACKAGE_NAME" || {
+            echo "MANIFEST GUARD FAILED: $PACKAGE_NAME is not the bundle's package." >&2; exit 1; }
+          echo "$BADGING" | grep -qi 'portrait' || {
+            echo "MANIFEST GUARD FAILED: the portrait lock did not reach the bundle." >&2; exit 1; }
+          # INTERNET fetches the baked Apple preview URLs; VIBRATE is merged in from the
+          # haptics plugin's own manifest. Losing either is silent on device.
+          for perm in INTERNET VIBRATE; do
+            echo "$BADGING" | grep -q "$perm" || {
+              echo "MANIFEST GUARD FAILED: android.permission.$perm missing from the bundle." >&2; exit 1; }
+          done
+
           VC="$(grep -o 'versionCode [0-9]*' android/app/build.gradle | grep -o '[0-9]*')"
           echo "versionCode=$VC versionName=$VERSION_NAME package=$PACKAGE_NAME"
           [ "$VC" -lt 2100000000 ] || {
             echo "VERSION GUARD FAILED: versionCode $VC exceeds Play's 2,100,000,000 cap." >&2; exit 1; }
-          echo "==> AAB verified: signed by the upload key, versionCode within Play's range"
+          echo "==> AAB verified: correct signer, resources present, manifest correct, versionCode in range"
 
     artifacts:
       - android/app/build/outputs/bundle/**/*.aab
