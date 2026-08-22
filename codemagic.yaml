@@ -290,3 +290,197 @@ workflows:
     scripts:
       - name: Prove the ASC key authenticates for a submission (submits nothing)
         script: bash scripts/asc-auth-check.sh
+
+  # ===========================================================================
+  # ScootSteps Android → signed release AAB (Capacitor 8 → Gradle → bundleRelease)
+  # ===========================================================================
+  # The pilot for the whole Android half of the factory. Everything here is meant
+  # to be copied to the other apps by changing PACKAGE_NAME, VERSION_NAME, the
+  # cert fingerprint, and the app's own native-patch step.
+  #
+  # ONE-TIME PER APP (already done for ScootSteps):
+  #   1. An upload keystore exists at ~/.config/android-keystores/<app>-upload.p12
+  #      on Jonathan's Mac. THIS FILE IS IRREPLACEABLE once Play has seen it —
+  #      losing it means opening a Google support case to reset the upload key.
+  #   2. Its base64 + passwords are stored as SECURE variables in the Codemagic
+  #      variable group `google_play` on this app. They are never in this repo.
+  #
+  # NOT wired to Google Play yet: the developer account is still in Google's
+  # identity-verification queue. The `publishing.google_play` block at the bottom
+  # is the last step and stays commented until the account is live.
+  android-release:
+    name: ScootSteps Android — signed AAB
+    instance_type: linux_x2
+    max_build_duration: 45
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+        - pattern: android-pilot
+          include: true
+          source: true
+      cancel_previous_builds: true
+    environment:
+      groups:
+        # ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
+        # ANDROID_KEY_PASSWORD — all secure, set via the Codemagic API, never printed.
+        - google_play
+      vars:
+        PACKAGE_NAME: "com.jonathanbiles.scootstep"   # == the iOS bundle id, on purpose
+        VERSION_NAME: "1.0"                            # == iOS CFBundleShortVersionString
+        # Public fingerprint of the upload certificate. Not a secret — it is the
+        # thing Google publishes back to you. Pinned so a build signed by the WRONG
+        # key fails here instead of at the Play upload screen weeks later.
+        ANDROID_UPLOAD_CERT_SHA256: "7D:CC:13:2F:02:3E:85:41:1D:CD:03:47:1C:B9:27:1D:EE:70:4F:4F:C4:1F:8E:E8:C7:87:D9:1F:9D:82:04:66"
+        ANDROID_COMPILE_SDK: "36"
+      node: 22
+      java: 21
+
+    scripts:
+      # ---- fail fast on the secret, before spending 6 minutes on Gradle ---------
+      - name: Materialise + verify the upload keystore
+        script: |
+          set -eu
+          # No `set -x` anywhere in this step. Codemagic masks secure values in the
+          # log, but the password also reaches keytool via a file, never argv, so it
+          # cannot leak through `ps` on a shared runner either.
+          : "${ANDROID_KEYSTORE_B64:?the google_play variable group is not attached to this workflow}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?}"
+          : "${ANDROID_KEY_ALIAS:?}"
+
+          KS="$HOME/upload-keystore.p12"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$KS"
+          chmod 600 "$KS"
+          [ -s "$KS" ] || { echo "keystore decoded to an empty file" >&2; exit 1; }
+
+          # The keystore is a PKCS12 built with openssl (this laptop has no JDK, so
+          # keytool was not available to create one). PKCS12 is Java's own default
+          # format since JDK 9, but openssl will happily default to the legacy
+          # RC2-40 PBE that JDK 17+ refuses to read — and Gradle reports that as an
+          # opaque "keystore password was incorrect". Proving keytool can open it
+          # HERE turns that into a one-line, obvious failure.
+          if ! keytool -list -keystore "$KS" -storetype PKCS12 \
+                 -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" > /tmp/ks.txt 2>&1; then
+            echo "KEYSTORE GUARD FAILED — keytool could not read the upload keystore." >&2
+            sed 's/[A-Za-z0-9+/]\{24,\}/[redacted]/g' /tmp/ks.txt >&2
+            exit 1
+          fi
+          grep -o 'SHA256: .*' /tmp/ks.txt || true
+          echo "==> upload keystore opens cleanly under keytool"
+
+      - name: Install npm dependencies
+        script: npm install
+
+      - name: Bake Apple preview URLs into the bundle
+        script: |
+          set -e
+          # Same step as the iOS workflow, so both platforms ship byte-identical
+          # web assets. Deliberately not --check: a flaky Apple response keeps the
+          # previously committed URLs rather than failing the build.
+          node scripts/bake-previews.mjs
+          echo "--- baked entries ---"
+          grep -c '"preview"' www/js/data.previews.js
+
+      - name: Install the Android SDK packages this project compiles against
+        script: |
+          set -e
+          # AGP 8 removed automatic SDK downloading, so a compileSdk the image does
+          # not happen to ship fails deep inside Gradle configuration with a message
+          # that reads like a plugin error. Ask for it explicitly instead.
+          SDKMANAGER="$(command -v sdkmanager || echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-$ANDROID_COMPILE_SDK" "build-tools;35.0.0" "platform-tools" > /dev/null
+          echo "==> android-$ANDROID_COMPILE_SDK present"
+
+      - name: Add + sync Android platform (Capacitor)
+        script: |
+          set -e
+          # android/ is gitignored and regenerated here, exactly like ios/. Every
+          # persistent native fact therefore lives in scripts/, not in the tree.
+          [ -d android ] || npx cap add android
+          npx cap sync android    # copies www/ -> android/app/src/main/assets/public
+          echo "--- capacitor plugins wired into the Android build ---"
+          cat android/capacitor.settings.gradle
+
+      - name: ScootSteps native patches — icon, splash, portrait lock, heap
+        script: bash scripts/patch-android.sh .
+
+      - name: Inject release signing config + stamp version
+        script: |
+          set -eu
+          # keystore.properties is written here, AFTER cap add android has created the
+          # directory it lives in. It holds the password in plaintext on the build
+          # machine only; the file is never committed (android/ is gitignored) and the
+          # instance is destroyed with the build.
+          umask 077
+          cat > android/keystore.properties <<EOF
+          storeFile=$HOME/upload-keystore.p12
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          storeType=PKCS12
+          EOF
+          python3 scripts/patch-android-gradle.py --version-name "$VERSION_NAME"
+
+      - name: Build the signed release AAB
+        script: |
+          set -e
+          cd android
+          ./gradlew --no-daemon --stacktrace bundleRelease
+
+      - name: Prove the AAB is real, signed, and signed by OUR upload key
+        script: |
+          set -e
+          AAB="$(find android/app/build/outputs/bundle/release -name '*.aab' | head -1)"
+          [ -n "$AAB" ] || { echo "no AAB produced" >&2; exit 1; }
+          echo "==> $AAB ($(du -h "$AAB" | cut -f1))"
+
+          # 1. It is a signed jar at all. An unsigned bundle builds green and is only
+          #    rejected at the Play upload screen — the Android twin of the iOS
+          #    "green build that never reached TestFlight" trap this factory already
+          #    paid for once.
+          jarsigner -verify "$AAB" | tee /tmp/jarverify.txt
+          grep -q "jar verified" /tmp/jarverify.txt || {
+            echo "SIGNING GUARD FAILED: the AAB is not signed." >&2; exit 1; }
+
+          # 2. It is signed by the expected certificate, not some other key that also
+          #    happens to be valid.
+          SIGFILE="$(unzip -Z1 "$AAB" 'META-INF/*.RSA' | head -1)"
+          unzip -p "$AAB" "$SIGFILE" > /tmp/sig.rsa
+          ACTUAL="$(keytool -printcert -file /tmp/sig.rsa | grep -m1 'SHA256:' | sed 's/.*SHA256: *//' | tr -d ' \r')"
+          echo "expected: $ANDROID_UPLOAD_CERT_SHA256"
+          echo "actual:   $ACTUAL"
+          [ "$ACTUAL" = "$ANDROID_UPLOAD_CERT_SHA256" ] || {
+            echo "SIGNING GUARD FAILED: AAB signed by an unexpected certificate." >&2; exit 1; }
+
+          # 3. The manifest inside the bundle really carries the identifiers Play
+          #    will key the listing on, and a versionCode Play will actually accept.
+          BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)"
+          "$BT/aapt2" dump badging "$AAB" 2>/dev/null | head -5 || \
+            unzip -p "$AAB" BUNDLE-METADATA/com.android.tools.build.gradle/app-metadata.properties || true
+          VC="$(grep -o 'versionCode [0-9]*' android/app/build.gradle | grep -o '[0-9]*')"
+          echo "versionCode=$VC versionName=$VERSION_NAME package=$PACKAGE_NAME"
+          [ "$VC" -lt 2100000000 ] || {
+            echo "VERSION GUARD FAILED: versionCode $VC exceeds Play's 2,100,000,000 cap." >&2; exit 1; }
+          echo "==> AAB verified: signed by the upload key, versionCode within Play's range"
+
+    artifacts:
+      - android/app/build/outputs/bundle/**/*.aab
+      - android/app/build/outputs/mapping/**/mapping.txt
+
+    # publishing.google_play is intentionally absent: the Play developer account is
+    # still in Google's identity-verification queue, and a publishing block pointing
+    # at a track that does not exist fails the build after a successful compile.
+    # When the account is live, add:
+    #
+    #   publishing:
+    #     google_play:
+    #       credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS   # secure, group google_play
+    #       track: internal
+    #       submit_as_draft: true
+    #
+    # The FIRST release of each app must still be uploaded by hand once, because
+    # Play will not accept an API upload for an app that has no release yet.

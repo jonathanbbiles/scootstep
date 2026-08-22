@@ -2,8 +2,20 @@
 node_modules/
 package-lock.json
 
-# Capacitor native project (regenerated at build time by `cap add ios` in Codemagic)
+# Capacitor native projects (regenerated at build time by `cap add ios` /
+# `cap add android` in Codemagic). Nothing hand-edited in here survives, which is
+# why every persistent native fact lives in scripts/patch-*.
 ios/
+android/
+
+# Signing material — NEVER committed. The Android upload keystore lives outside the
+# repo at ~/.config/android-keystores/ and reaches CI only as a secure Codemagic
+# variable. Losing it means asking Google to reset the app's upload key.
+*.jks
+*.keystore
+*.p12
+*.p8
+keystore.properties
 
 # build + test artifacts
 build/
