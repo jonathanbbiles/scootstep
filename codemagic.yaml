@@ -477,35 +477,50 @@ workflows:
             unzip -Z1 "$AAB" 'base/res/*' | head -40 >&2; exit 1; }
           unzip -Z1 "$AAB" 'base/res/*splash*' | head -3
 
-          # 4. The manifest inside the bundle carries the identifiers Play keys the
-          #    listing on, plus a versionCode Play will actually accept. Read them from
-          #    the ARTIFACT, not from build.gradle — build.gradle is what we asked for,
-          #    the bundle is what we got.
-          BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)"
-          BADGING=""
-          for try in "dump badging $AAB" "dump xmltree --file base/manifest/AndroidManifest.xml $AAB"; do
-            BADGING="$("$BT/aapt2" $try 2>/dev/null || true)"
-            [ -n "$BADGING" ] && break
-          done
-          [ -n "$BADGING" ] || {
-            echo "MANIFEST GUARD FAILED: aapt2 could not read the bundle manifest." >&2; exit 1; }
-          echo "$BADGING" | head -20
+          # 4. The manifest that actually shipped says what we think it says.
+          #    Two complementary reads, because neither alone is enough:
+          #      (a) the MERGED manifest Gradle produced — plain XML, and the exact
+          #          input to the bundle, including everything the plugins merged in
+          #          (VIBRATE arrives from @capacitor/haptics' own manifest, not ours,
+          #          so the source manifest patch-android.sh checks cannot see it);
+          #      (b) the manifest inside the AAB — protobuf, so only string-valued
+          #          fields are greppable, but it proves the bundle really carries the
+          #          package name rather than merely that Gradle intended it to.
+          #    aapt2's `dump` subcommands do NOT accept an .aab, which is why this is
+          #    not one tidy aapt2 call.
+          MERGED="$(find android/app/build/intermediates -name AndroidManifest.xml -path '*elease*' | head -1)"
+          [ -n "$MERGED" ] || {
+            echo "MANIFEST GUARD FAILED: no merged release manifest was produced." >&2
+            find android/app/build/intermediates -name AndroidManifest.xml >&2; exit 1; }
+          echo "merged manifest: $MERGED"
 
-          echo "$BADGING" | grep -q "$PACKAGE_NAME" || {
-            echo "MANIFEST GUARD FAILED: $PACKAGE_NAME is not the bundle's package." >&2; exit 1; }
-          echo "$BADGING" | grep -qi 'portrait' || {
-            echo "MANIFEST GUARD FAILED: the portrait lock did not reach the bundle." >&2; exit 1; }
-          # INTERNET fetches the baked Apple preview URLs; VIBRATE is merged in from the
-          # haptics plugin's own manifest. Losing either is silent on device.
-          for perm in INTERNET VIBRATE; do
-            echo "$BADGING" | grep -q "$perm" || {
-              echo "MANIFEST GUARD FAILED: android.permission.$perm missing from the bundle." >&2; exit 1; }
-          done
+          check_merged() { # check_merged <grep-pattern> <human name>
+            grep -q "$1" "$MERGED" || {
+              echo "MANIFEST GUARD FAILED: $2 is not in the merged manifest." >&2
+              grep -n 'uses-permission\|screenOrientation\|package=' "$MERGED" >&2 || true
+              exit 1; }
+            echo "  ok: $2"
+          }
+          check_merged "$PACKAGE_NAME"                   "package $PACKAGE_NAME"
+          check_merged 'android:screenOrientation="portrait"' "portrait lock"
+          # INTERNET fetches the baked Apple preview URLs. VIBRATE is merged in from the
+          # haptics plugin. Losing either is completely silent until someone uses the app.
+          check_merged 'android.permission.INTERNET'     "INTERNET permission"
+          check_merged 'android.permission.VIBRATE'      "VIBRATE permission (from @capacitor/haptics)"
 
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml > /tmp/manifest.pb
+          grep -aq "$PACKAGE_NAME" /tmp/manifest.pb || {
+            echo "MANIFEST GUARD FAILED: $PACKAGE_NAME not present in the bundle manifest." >&2; exit 1; }
+          echo "  ok: bundle manifest carries $PACKAGE_NAME"
+
+          # 5. A versionCode Play will actually accept. See patch-android-gradle.py:
+          #    the iOS 12-digit timestamp scheme is ~96x over Play's 2,100,000,000 cap,
+          #    and Gradle would happily bake it into a perfectly valid signed bundle.
           VC="$(grep -o 'versionCode [0-9]*' android/app/build.gradle | grep -o '[0-9]*')"
           echo "versionCode=$VC versionName=$VERSION_NAME package=$PACKAGE_NAME"
-          [ "$VC" -lt 2100000000 ] || {
-            echo "VERSION GUARD FAILED: versionCode $VC exceeds Play's 2,100,000,000 cap." >&2; exit 1; }
+          [ -n "$VC" ] && [ "$VC" -gt 0 ] && [ "$VC" -lt 2100000000 ] || {
+            echo "VERSION GUARD FAILED: versionCode '$VC' is outside Play's valid range." >&2; exit 1; }
+
           echo "==> AAB verified: correct signer, resources present, manifest correct, versionCode in range"
 
     artifacts:
